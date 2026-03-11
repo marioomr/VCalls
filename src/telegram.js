@@ -25,8 +25,11 @@ async function sendAlert(item) {
     return;
   }
 
+  const platform = item.platform || 'Vestiaire';
+  const emoji     = platform === 'Wallapop' ? '🟢' : '🔥';
+
   const lines = [
-    '\uD83D\uDD25 Nuevo artículo en Vestiaire',
+    `${emoji} Nuevo artículo en ${platform}`,
     '',
   ];
   if (item.filterName) lines.push(`Filtro: ${item.filterName}`);

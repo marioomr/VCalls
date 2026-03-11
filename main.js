@@ -6,8 +6,9 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 
-const { fetchListings, closeBrowser } = require('./src/vestiaire');
-const { sendAlert }                   = require('./src/telegram');
+const { fetchListings: fetchVestiaireListings, closeBrowser: closeVestiaireBrowser } = require('./src/vestiaire');
+const { fetchListings: fetchWallapopListings, closeBrowser: closeWallapopBrowser }   = require('./src/scrapers/wallapop');
+const { sendAlert }                                                                   = require('./src/telegram');
 
 // ---------------------------------------------------------------------------
 // Filters persistence
@@ -69,7 +70,8 @@ app.on('activate', () => {
 
 app.on('before-quit', async () => {
   stopAllFilters();
-  await closeBrowser();
+  await closeVestiaireBrowser();
+  await closeWallapopBrowser();
 });
 
 // ---------------------------------------------------------------------------
@@ -99,7 +101,9 @@ function startFilter(id) {
     if (!filter) { stopFilter(id); return; }
 
     log(`[${filter.name}] Comprobando...`);
-    const items = await fetchListings(filter.query);
+    const items = filter.platform === 'wallapop'
+      ? await fetchWallapopListings({ keywords: filter.query })
+      : await fetchVestiaireListings(filter.query);
 
     if (items.length === 0) {
       log(`[${filter.name}] Sin resultados`);
@@ -127,11 +131,13 @@ function startFilter(id) {
 
     log(`[${filter.name}] ¡${newItems.length} artículo(s) nuevo(s)!`);
 
+    const platformLabel = filter.platform === 'wallapop' ? 'Wallapop' : 'Vestiaire';
+
     for (const item of newItems) {
       seenSet.add(item.id);
-      await sendAlert({ ...item, filterName: filter.name });
+      await sendAlert({ ...item, filterName: filter.name, platform: platformLabel });
       if (mainWindow) {
-        mainWindow.webContents.send('filter:product', id, { ...item, filterName: filter.name });
+        mainWindow.webContents.send('filter:product', id, { ...item, filterName: filter.name, platform: platformLabel });
       }
     }
 
@@ -162,12 +168,13 @@ function stopAllFilters() {
 
 ipcMain.handle('filters:load', () => loadFilters());
 
-ipcMain.handle('filter:add', (_, { name, query, interval }) => {
+ipcMain.handle('filter:add', (_, { name, query, interval, platform }) => {
   const filters = loadFilters();
   filters.push({
     id:       Date.now().toString(),
     name:     name.trim(),
     query:    query.trim(),
+    platform: platform || 'vestiaire',
     interval: Number(interval) || 30000,
     seenIds:  [],
   });

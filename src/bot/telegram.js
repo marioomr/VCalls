@@ -16,13 +16,16 @@ async function sendAlert(item) {
     return;
   }
 
+  const platform = item.platform || 'Vestiaire';
+  const emoji     = platform === 'Wallapop' ? '\uD83D\uDFE2' : '\uD83D\uDD25';
+
   const text = [
-    '\uD83D\uDD25 Nuevo artículo en Vestiaire',
+    emoji + ' Nuevo artículo en ' + platform,
     '',
-    'Nombre: ' + item.name,
-    'Precio: ' + item.price,
+    'Nombre: ' + (item.name || 'Sin nombre'),
+    'Precio: ' + (item.price || 'N/D'),
     '',
-    item.link,
+    item.link || '',
   ].join('\n');
 
   const body = JSON.stringify({ chat_id: chatId, text });
