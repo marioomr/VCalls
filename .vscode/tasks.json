@@ -1,0 +1,45 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "install-electron-clean",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"install",
+				"--save-dev",
+				"electron@41.0.0"
+			]
+		},
+		{
+			"label": "clean-electron-folders",
+			"type": "shell",
+			"command": "rm",
+			"args": [
+				"-rf",
+				"node_modules/electron",
+				"node_modules/.bin/electron"
+			]
+		},
+		{
+			"label": "install-electron-clean-2",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"install",
+				"--save-dev",
+				"electron@41.0.0"
+			]
+		},
+		{
+			"label": "launch-electron-app",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"app"
+			],
+			"isBackground": true
+		}
+	]
+}
