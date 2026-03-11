@@ -81,6 +81,12 @@ app.on('before-quit', async () => {
 const activeIntervals  = new Map();  // filterId → NodeJS.Timeout
 const seededInSession  = new Set();  // filterId → already seeded this session
 
+/** Returns a humanised delay: base ±16.7 % (e.g. 30 s → 25–35 s) */
+function humanDelay(base) {
+  const range = base / 6;
+  return Math.round(base - range + Math.random() * range * 2);
+}
+
 function log(msg) {
   console.log(msg);
   if (mainWindow) mainWindow.webContents.send('app:log', msg);
@@ -145,13 +151,24 @@ function startFilter(id) {
     saveFilters(filters);
   };
 
-  tick();
-  activeIntervals.set(id, setInterval(tick, filterData.interval || 30000));
+  // Mark as active immediately (prevents re-entry), then start first tick.
+  // After each tick completes, schedule the next with a humanised delay.
+  activeIntervals.set(id, null);
+  const scheduleNext = () => {
+    if (!activeIntervals.has(id)) return;
+    const timer = setTimeout(async () => {
+      await tick().catch(() => {});
+      scheduleNext();
+    }, humanDelay(filterData.interval || 30000));
+    activeIntervals.set(id, timer);
+  };
+  tick().catch(() => {}).then(scheduleNext);
 }
 
 function stopFilter(id) {
   if (!activeIntervals.has(id)) return;
-  clearInterval(activeIntervals.get(id));
+  const timer = activeIntervals.get(id);
+  if (timer !== null) clearTimeout(timer);
   activeIntervals.delete(id);
   const filter = loadFilters().find(f => f.id === id);
   log(`[Monitor] Detenido: "${filter?.name || id}"`);

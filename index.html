@@ -286,6 +286,11 @@
     .pc-led { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .pc-led.vc { background: var(--vc); box-shadow: 0 0 6px var(--vc); }
     .pc-led.wp { background: var(--wp); box-shadow: 0 0 6px var(--wp); }
+    @keyframes led-pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.55); }
+    }
+    .pc-led.pulsing { animation: led-pulse 1.7s ease-in-out infinite; }
     .pc-title { font-size: 12px; font-weight: 700; }
     .pc-title.vc { color: var(--vc); }
     .pc-title.wp { color: var(--wp); }
@@ -367,6 +372,53 @@
     .log-entry.warn    { color: var(--yellow); }
     .log-entry.error   { color: var(--red); }
     .log-entry.success { color: var(--green); }
+
+    /* Recent products in stats panel */
+    .recent-section { margin-top: 6px; }
+    .recent-section-title {
+      font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.12em;
+      color: var(--text3); margin-bottom: 10px;
+    }
+    .recent-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+      gap: 8px;
+    }
+    .recent-item {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 9px; overflow: hidden;
+      cursor: pointer; transition: border-color 0.15s, transform 0.12s;
+      animation: fadeIn 0.25s ease;
+    }
+    .recent-item:hover { border-color: var(--text3); transform: translateY(-2px); }
+    .recent-item.vc { border-top: 2px solid var(--vc); }
+    .recent-item.wp { border-top: 2px solid var(--wp); }
+    .recent-item-img {
+      width: 100%; aspect-ratio: 1 / 1;
+      object-fit: cover; display: block; background: var(--bg3);
+    }
+    .recent-item-placeholder {
+      width: 100%; aspect-ratio: 1 / 1;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg3); font-size: 28px;
+    }
+    .recent-item-body { padding: 6px 8px 8px; }
+    .recent-item-name {
+      font-size: 11px; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .recent-item-price { font-size: 12px; font-weight: 700; color: var(--green); margin-top: 2px; }
+    .recent-item-tag {
+      display: inline-block; font-size: 9px;
+      padding: 1px 6px; border-radius: 5px; font-weight: 600; margin-top: 4px;
+    }
+    .recent-item-tag.vc { background: rgba(249,115,22,0.15); color: var(--vc); }
+    .recent-item-tag.wp { background: rgba(6,182,212,0.15);  color: var(--wp); }
+    .recent-grid-empty {
+      grid-column: 1/-1; font-size: 11px; color: var(--text3);
+      text-align: center; padding: 20px;
+    }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 3px; }
@@ -515,6 +567,14 @@
             </div>
           </div>
 
+        </div>
+
+        <!-- Últimas detecciones -->
+        <div class="recent-section">
+          <div class="recent-section-title">Últimas detecciones</div>
+          <div class="recent-grid" id="recent-grid">
+            <div class="recent-grid-empty">Los productos detectados aparecerán aquí</div>
+          </div>
         </div>
       </div>
 

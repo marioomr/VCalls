@@ -18,6 +18,10 @@ const platformStats = {
 
 const detectionHistory = { vestiaire: [], wallapop: [] };
 
+const runningFilterIds = new Set();
+const recentProducts   = [];
+const MAX_RECENT       = 8;
+
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
@@ -154,6 +158,11 @@ function renderFilters() {
         <button class="btn btn-delete" data-action="delete" data-id="${filter.id}">🗑</button>
       </div>
     `;
+    if (runningFilterIds.has(filter.id)) {
+      card.classList.add('running');
+      const dot = card.querySelector('.status-dot');
+      if (dot) dot.className = 'status-dot running';
+    }
     list.appendChild(card);
   }
 }
@@ -173,11 +182,13 @@ window.api.onStatus((id, status) => {
   const platform = filter?.platform === 'wallapop' ? 'wallapop' : 'vestiaire';
 
   if (status === 'running') {
+    runningFilterIds.add(id);
     runningCount++;
     platformStats[platform].activeFilters++;
     if (!filterStartTimes.has(id)) filterStartTimes.set(id, Date.now());
     if (!uptimeTicker) uptimeTicker = setInterval(updateUptime, 1000);
   } else {
+    runningFilterIds.delete(id);
     runningCount = Math.max(0, runningCount - 1);
     platformStats[platform].activeFilters = Math.max(0, platformStats[platform].activeFilters - 1);
     filterStartTimes.delete(id);
@@ -220,6 +231,10 @@ window.api.onLog(msg => addLog(msg));
 function updatePlatformStats() {
   document.getElementById('vc-active-filters').textContent = platformStats.vestiaire.activeFilters;
   document.getElementById('wp-active-filters').textContent = platformStats.wallapop.activeFilters;
+  const vcLed = document.querySelector('.pc-led.vc');
+  const wpLed = document.querySelector('.pc-led.wp');
+  if (vcLed) vcLed.classList.toggle('pulsing', platformStats.vestiaire.activeFilters > 0);
+  if (wpLed) wpLed.classList.toggle('pulsing', platformStats.wallapop.activeFilters > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +254,10 @@ function addProduct(product) {
 
   detectionHistory[platform].push(Date.now());
   drawSparkline(platform);
+
+  recentProducts.unshift({ ...product, platform });
+  if (recentProducts.length > MAX_RECENT) recentProducts.length = MAX_RECENT;
+  updateRecentProducts();
 
   const panel = document.getElementById('panel-products');
   const empty = document.getElementById('empty-products');
@@ -267,6 +286,66 @@ document.getElementById('panel-products').addEventListener('click', e => {
   const btn = e.target.closest('[data-url]');
   if (btn) window.api.openLink(btn.dataset.url);
 });
+
+// ---------------------------------------------------------------------------
+// Recent products grid (in stats panel)
+// ---------------------------------------------------------------------------
+
+function updateRecentProducts() {
+  const grid = document.getElementById('recent-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  if (recentProducts.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'recent-grid-empty';
+    empty.textContent = 'Los productos detectados aparecerán aquí';
+    grid.appendChild(empty);
+    return;
+  }
+
+  for (const product of recentProducts) {
+    const isWp = product.platform === 'wallapop';
+    const item = document.createElement('div');
+    item.className = `recent-item ${isWp ? 'wp' : 'vc'}`;
+    if (product.link) item.dataset.url = product.link;
+    item.addEventListener('click', () => {
+      if (item.dataset.url) window.api.openLink(item.dataset.url);
+    });
+
+    if (product.image) {
+      const img = document.createElement('img');
+      img.className = 'recent-item-img';
+      img.src = product.image;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', () => {
+        const ph = document.createElement('div');
+        ph.className = 'recent-item-placeholder';
+        ph.textContent = isWp ? '🏷️' : '👗';
+        img.replaceWith(ph);
+      });
+      item.appendChild(img);
+    } else {
+      const ph = document.createElement('div');
+      ph.className = 'recent-item-placeholder';
+      ph.textContent = isWp ? '🏷️' : '👗';
+      item.appendChild(ph);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'recent-item-body';
+    const priceHtml = product.price
+      ? `<div class="recent-item-price">${esc(product.price)}</div>` : '';
+    body.innerHTML = `
+      <div class="recent-item-name" title="${esc(product.name || '')}">${esc(product.name || 'Sin nombre')}</div>
+      ${priceHtml}
+      <span class="recent-item-tag ${isWp ? 'wp' : 'vc'}">${isWp ? 'Wallapop' : 'Vestiaire'}</span>
+    `;
+    item.appendChild(body);
+    grid.appendChild(item);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Charts
