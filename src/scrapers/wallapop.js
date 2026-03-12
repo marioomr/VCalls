@@ -1,8 +1,6 @@
 'use strict';
 
-const puppeteer = require('puppeteer-core');
-
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const { getBrowser, closeBrowser, isFatalBrowserError } = require('../utils/browser');
 
 const BLOCKED_TYPES   = new Set(['image', 'font', 'media']);
 const BLOCKED_DOMAINS = [
@@ -13,24 +11,6 @@ const BLOCKED_DOMAINS = [
 const DEFAULT_LATITUDE  = 40.4168;
 const DEFAULT_LONGITUDE = -3.7038;
 const DEFAULT_DISTANCE  = 200000;
-
-let _browser = null;
-
-async function getBrowser() {
-  if (!_browser || !_browser.isConnected()) {
-    _browser = await puppeteer.launch({
-      executablePath: CHROME_PATH,
-      headless:       'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-        '--disable-dev-shm-usage',
-      ],
-    });
-  }
-  return _browser;
-}
 
 async function fetchListings(options) {
   const {
@@ -55,7 +35,6 @@ async function fetchListings(options) {
     browser = await getBrowser();
   } catch (err) {
     console.error('[Wallapop] Error al iniciar Chrome:', err.message);
-    _browser = null;
     return [];
   }
 
@@ -116,11 +95,13 @@ async function fetchListings(options) {
 
   } catch (err) {
     console.error('[Wallapop] Error de scraping:', err.message);
-    try { await _browser.close(); } catch {}
-    _browser = null;
+    if (isFatalBrowserError(err)) {
+      // closeBrowser resets the singleton so the next cycle relaunches cleanly
+      await closeBrowser();
+    }
     return [];
   } finally {
-    try { await page.close(); } catch {}
+    try { if (!page.isClosed()) await page.close(); } catch {}
   }
 }
 
@@ -144,7 +125,9 @@ async function extractFromDOM(page, keywords) {
         const name    = (nameEl?.innerText || anchor?.innerText || '').trim().split('\n')[0];
         const priceEl = card.querySelector('[class*="price"], [class*="Price"]');
         const price   = (priceEl?.innerText || '').trim();
-        return { id, name, price, link, image: null };
+        const imgEl = card.querySelector('img[src], img[data-src]');
+        const image = normalizeImageUrl(imgEl?.getAttribute('src') || imgEl?.dataset?.src || null);
+        return { id, name, price, link, image };
       }).filter(i => i.id)
     );
   } catch {
@@ -179,13 +162,21 @@ function parseItems(data) {
 
       const price  = formatPrice(content?.price);
       const images = content?.images || [];
-      const image  = Array.isArray(images) && images.length > 0
-        ? (images[0]?.urls?.big || images[0]?.urls?.medium || images[0]?.original || null)
+      const rawImage = Array.isArray(images) && images.length > 0
+        ? (images[0]?.urls?.big || images[0]?.urls?.medium || images[0]?.urls?.small || images[0]?.original || null)
         : null;
+      const image = normalizeImageUrl(rawImage);
 
       return { id, name: title, price, link, image };
     })
     .filter(Boolean);
+}
+
+function normalizeImageUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('//')) return `https:${url}`;
+  if (url.startsWith('/'))  return `https://api.wallapop.com${url}`;
+  return url;
 }
 
 function formatPrice(price) {
@@ -198,11 +189,6 @@ function formatPrice(price) {
   return String(price);
 }
 
-async function closeBrowser() {
-  if (_browser) {
-    try { await _browser.close(); } catch {}
-    _browser = null;
-  }
-}
-
+// Re-export closeBrowser from the shared utility so main.js can call it
+// without knowing which module manages the singleton.
 module.exports = { fetchListings, closeBrowser };

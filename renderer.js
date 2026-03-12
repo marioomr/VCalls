@@ -267,7 +267,19 @@ function addProduct(product) {
   const time = new Date().toLocaleTimeString('es-ES');
   const card = document.createElement('div');
   card.className = `product-card ${isWp ? 'wp' : 'vc'}`;
-  card.innerHTML = `
+
+  // Thumbnail
+  if (product.image) {
+    const thumb = document.createElement('img');
+    thumb.className = 'product-thumb';
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.src = product.image;
+    thumb.addEventListener('error', () => thumb.remove());
+    card.appendChild(thumb);
+  }
+
+  card.innerHTML += `
     <div class="product-info">
       <div class="product-name" title="${esc(product.name || '')}">${esc(product.name || 'Sin nombre')}</div>
       <div class="product-meta">

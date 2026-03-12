@@ -6,14 +6,12 @@
  *
  * - Sin axios, sin cookies manuales.
  * - Bloquea imágenes, fuentes y trackers para cargar más rápido.
- * - Browser singleton compartido entre todos los filtros activos.
+ * - Browser singleton compartido entre todos los filtros activos (ver utils/browser.js).
  */
 
 'use strict';
 
-const puppeteer = require('puppeteer-core');
-
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const { getBrowser, closeBrowser, isFatalBrowserError } = require('./utils/browser');
 
 const BLOCKED_TYPES   = new Set(['image', 'font', 'media']);
 const BLOCKED_DOMAINS = [
@@ -23,24 +21,6 @@ const BLOCKED_DOMAINS = [
 
 // Sort: recency=3, price_asc=1, price_desc=2
 const DEFAULT_SORT = 3;
-
-let _browser = null;
-
-async function getBrowser() {
-  if (!_browser || !_browser.isConnected()) {
-    _browser = await puppeteer.launch({
-      executablePath: CHROME_PATH,
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
-        '--disable-dev-shm-usage',
-      ],
-    });
-  }
-  return _browser;
-}
 
 /**
  * Abre la página de búsqueda de Vestiaire y extrae los productos del DOM.
@@ -57,7 +37,6 @@ async function fetchListings(query) {
     browser = await getBrowser();
   } catch (err) {
     console.error('[Vestiaire] Error al iniciar Chrome:', err.message);
-    _browser = null;
     return [];
   }
 
@@ -147,10 +126,10 @@ async function fetchListings(query) {
         );
         const price = (priceEl?.innerText || '').trim();
 
-        const img   = card.querySelector('img');
-        const image = img?.getAttribute('src') || img?.dataset?.src || null;
+        const imgEl = card.querySelector('img');
+        const image = imgEl?.getAttribute('src') || imgEl?.dataset?.src || null;
 
-        return { id: String(id), name, price, link, image };
+        return { id: String(id), name, price, link, image: image && image.startsWith('//') ? `https:${image}` : (image && image.startsWith('/') ? `https://images.vestiairecollective.com${image}` : image) };
       })
     );
 
@@ -170,11 +149,12 @@ async function fetchListings(query) {
 
   } catch (err) {
     console.error('[Vestiaire] Error de scraping:', err.message);
-    try { await _browser.close(); } catch {}
-    _browser = null;
+    if (isFatalBrowserError(err)) {
+      await closeBrowser();
+    }
     return [];
   } finally {
-    try { await page.close(); } catch {}
+    try { if (!page.isClosed()) await page.close(); } catch {}
   }
 }
 
@@ -194,11 +174,12 @@ function parseApiProducts(data) {
       name: buildName(p.brand?.name, p.name, p.model),
       price: formatPrice(p.price),
       link: formatLink(p.link),
-      image:
+      image: normalizeImageUrl(
         p.picture?.url ||
         (Array.isArray(p.picture) ? p.picture[0]?.url : null) ||
         p.imageUrl ||
-        null,
+        null
+      ),
     }))
     .filter(i => i.id);
 }
@@ -235,7 +216,7 @@ function findProductArray(obj, depth = 0) {
         name:  buildName(p.brand?.name, p.name, p.model),
         price: formatPrice(p.price),
         link:  formatLink(p.link),
-        image: p.picture?.url || p.imageUrl || null,
+        image: normalizeImageUrl(p.picture?.url || p.imageUrl || null),
       })).filter(i => i.id);
     }
     for (const item of obj) {
@@ -249,6 +230,13 @@ function findProductArray(obj, depth = 0) {
     if (f) return f;
   }
   return null;
+}
+
+function normalizeImageUrl(url) {
+  if (!url) return null;
+  if (url.startsWith('//')) return `https:${url}`;
+  if (url.startsWith('/'))  return `https://images.vestiairecollective.com${url}`;
+  return url;
 }
 
 function formatPrice(price) {
@@ -277,15 +265,5 @@ function formatLink(link) {
   return `https://es.vestiairecollective.com${link}`;
 }
 
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-
-async function closeBrowser() {
-  if (_browser) {
-    try { await _browser.close(); } catch {}
-    _browser = null;
-  }
-}
-
+// Re-export closeBrowser from the shared utility so main.js keeps working.
 module.exports = { fetchListings, closeBrowser };

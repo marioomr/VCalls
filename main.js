@@ -6,9 +6,10 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 
-const { fetchListings: fetchVestiaireListings, closeBrowser: closeVestiaireBrowser } = require('./src/vestiaire');
-const { fetchListings: fetchWallapopListings, closeBrowser: closeWallapopBrowser }   = require('./src/scrapers/wallapop');
-const { sendAlert }                                                                   = require('./src/telegram');
+const { fetchListings: fetchVestiaireListings } = require('./src/vestiaire');
+const { fetchListings: fetchWallapopListings }   = require('./src/scrapers/wallapop');
+const { closeBrowser }                           = require('./src/utils/browser');
+const { sendAlert }                              = require('./src/telegram');
 
 // ---------------------------------------------------------------------------
 // Filters persistence
@@ -70,8 +71,7 @@ app.on('activate', () => {
 
 app.on('before-quit', async () => {
   stopAllFilters();
-  await closeVestiaireBrowser();
-  await closeWallapopBrowser();
+  await closeBrowser();
 });
 
 // ---------------------------------------------------------------------------
