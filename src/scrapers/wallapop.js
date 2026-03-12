@@ -13,7 +13,7 @@
  * Used by both the Electron app (main.js) and the server (filterManager.js).
  */
 
-const https = require('https');
+const axios  = require('axios');
 const { getBrowser, closeBrowser, isFatalBrowserError } = require('../utils/browser');
 
 const DEFAULT_LATITUDE  = 40.4168;
@@ -58,28 +58,8 @@ async function fetchListings(options) {
 }
 
 // ----------------------------------------------------------------------------
-// Tier 1 — Direct HTTPS call
+// Tier 1 — Direct API call via axios (handles gzip/deflate automatically)
 // ----------------------------------------------------------------------------
-
-function httpsGet(url, headers) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      let body = '';
-      res.setEncoding('utf8');
-      res.on('data', chunk => { body += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(body)); }
-        catch (e) { reject(new Error('JSON inválido: ' + e.message)); }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(20000, () => { req.destroy(new Error('Timeout directo')); });
-  });
-}
 
 // Wallapop has changed their API endpoint several times — try each in order.
 const API_ENDPOINT_CANDIDATES = [
@@ -89,21 +69,16 @@ const API_ENDPOINT_CANDIDATES = [
 ];
 
 const API_HEADERS = {
-  'Accept':             'application/json, text/plain, */*',
-  'Accept-Language':    'es-ES,es;q=0.9,en;q=0.8',
-  'Accept-Encoding':    'gzip, deflate, br',
-  'DeviceOS':           '0',
-  'X-DeviceOS':         '0',
-  'Origin':             'https://es.wallapop.com',
-  'Referer':            'https://es.wallapop.com/',
-  'User-Agent':         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Sec-Fetch-Dest':     'empty',
-  'Sec-Fetch-Mode':     'cors',
-  'Sec-Fetch-Site':     'same-site',
+  'Accept':          'application/json',
+  'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+  'DeviceOS':        '0',
+  'Origin':          'https://es.wallapop.com',
+  'Referer':         'https://es.wallapop.com/',
+  'User-Agent':      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
 };
 
 async function fetchDirectApi(opts) {
-  const params = new URLSearchParams({
+  const params = {
     keywords:       opts.keywords,
     order_by:       opts.orderBy,
     latitude:       opts.latitude,
@@ -112,21 +87,24 @@ async function fetchDirectApi(opts) {
     step:           40,
     start:          0,
     filters_source: 'default_filters',
-  });
+  };
 
   console.log(`[Wallapop] API directa: q="${opts.keywords}"`);
 
   for (const base of API_ENDPOINT_CANDIDATES) {
-    const url = `${base}?${params}`;
+    const tag = base.split('/').pop();
     try {
-      const data  = await httpsGet(url, API_HEADERS);
-      const items = parseItems(data);
+      const res   = await axios.get(base, { params, headers: API_HEADERS, timeout: 20000 });
+      const items = parseItems(res.data);
       if (items.length > 0) {
-        console.log(`[Wallapop] ${items.length} artículos vía API directa (${base.split('/').pop()}) q="${opts.keywords}".`);
+        console.log(`[Wallapop] ${items.length} artículos vía API (${tag}) q="${opts.keywords}".`);
         return items;
       }
+      console.warn(`[Wallapop] API (${tag}) respondió pero sin items: ${JSON.stringify(res.data).slice(0, 150)}`);
     } catch (err) {
-      console.warn(`[Wallapop] API directa fallida (${base.split('/').pop()}): ${err.message}`);
+      const status  = err.response?.status;
+      const snippet = err.response?.data ? JSON.stringify(err.response.data).slice(0, 150) : '';
+      console.warn(`[Wallapop] API fallida (${tag}): ${status || err.message}${snippet ? ' — ' + snippet : ''}`);
     }
   }
   return [];
@@ -151,6 +129,8 @@ async function fetchViaPuppeteer(opts) {
   }
 
   const page = await browser.newPage();
+  let capturedItems = [];
+
   try {
     await page.evaluateOnNewDocument(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -162,9 +142,7 @@ async function fetchViaPuppeteer(opts) {
       '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     );
 
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'es-ES,es;q=0.9',
-    });
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' });
 
     await page.setRequestInterception(true);
     page.on('request', req => {
@@ -178,33 +156,45 @@ async function fetchViaPuppeteer(opts) {
       }
     });
 
-    // Intercept ANY successful JSON response from the Wallapop API
-    const apiResponsePromise = page.waitForResponse(
-      res =>
-        res.url().includes('api.wallapop.com') &&
-        res.status() >= 200 && res.status() < 300,
-      { timeout: 45000 }
-    ).catch(() => null);
-
-    console.log(`[Wallapop] Navegador: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 50000 });
-
-    // Extra wait for Angular SPA to finish rendering after network idle
-    await new Promise(r => setTimeout(r, 4000));
-
-    const apiResponse = await apiResponsePromise;
-    if (apiResponse) {
+    // Event-based capture: collects ALL api.wallapop.com responses,
+    // not just a single matching one. More robust than waitForResponse.
+    page.on('response', async (res) => {
+      if (!res.url().includes('api.wallapop.com')) return;
+      console.log(`[Wallapop] XHR interceptado: ${res.status()} ${res.url().split('?')[0]}`);
+      if (res.status() < 200 || res.status() >= 300) return;
+      if (capturedItems.length > 0) return; // already got results
       try {
-        const data  = await apiResponse.json();
+        const data  = await res.json();
         const items = parseItems(data);
         if (items.length > 0) {
-          console.log(`[Wallapop] ${items.length} artículos vía navegador (q="${opts.keywords}").`);
-          return items;
+          capturedItems = items;
+          console.log(`[Wallapop] ${items.length} artículos interceptados del navegador (q="${opts.keywords}").`);
+        } else {
+          console.warn(`[Wallapop] XHR sin items: ${JSON.stringify(data).slice(0, 150)}`);
         }
-      } catch { /* fall through */ }
+      } catch { /* binary/non-JSON response — skip */ }
+    });
+
+    console.log(`[Wallapop] Navegador: ${searchUrl}`);
+
+    // 'domcontentloaded' instead of 'networkidle2':
+    // networkidle2 NEVER completes on Cloudflare/Angular pages from a headless
+    // server, always timing out at 50s and returning [] silently.
+    try {
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } catch (navErr) {
+      // A navigation timeout is non-fatal — the page may be partially loaded
+      // and the XHR listener may already have captured data.
+      console.warn(`[Wallapop] Advertencia de navegación: ${navErr.message}`);
     }
 
-    // DOM fallback
+    // Wait for the Angular app to bootstrap and fire its search XHR.
+    // /v3/search/section fires later than the initial component XHRs.
+    await new Promise(r => setTimeout(r, 12000));
+
+    if (capturedItems.length > 0) return capturedItems;
+
+    // DOM fallback — try Angular web components and classic selectors.
     const domItems = await extractFromDOM(page);
     console.log(`[Wallapop] ${domItems.length} artículos del DOM (q="${opts.keywords}").`);
     return domItems;
@@ -263,12 +253,13 @@ async function extractFromDOM(page) {
 
 function parseItems(data) {
   const raw =
-    data?.data?.section?.payload?.items ||
-    data?.search_objects                ||
-    data?.data?.items                   ||
-    data?.items                         ||
-    data?.result?.items                 ||
-    data?.results                       ||
+    data?.data?.section?.items         ||   // /v3/search/section (current endpoint)
+    data?.data?.section?.payload?.items ||   // legacy endpoint format
+    data?.search_objects                ||   // older search API
+    data?.data?.items                   ||   // generic data.data.items
+    data?.items                         ||   // generic .items
+    data?.result?.items                 ||   // result wrapper
+    data?.results                       ||   // flat results array
     [];
 
   if (!Array.isArray(raw)) {
