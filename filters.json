@@ -26,14 +26,12 @@
     "name": "auriculares",
     "platform": "wallapop",
     "query": "earpods",
-    "interval": 30000,
+    "interval": 60000,
     "enabled": true,
-    "categoryId": 16000,
-    "priceMin": 10,
-    "priceMax": 1000,
-    "condition": ["new", "as_good_as_new", "good"],
-    "isShippable": false,
-    "timeFilter": ""
+    "categoryId": 12545,
+    "condition": ["new", "as_good_as_new", "good", "fair", "has_given_it_all"],
+    "timeFilter": "today",
+    "orderBy": "newest"
   }
 ]
 
