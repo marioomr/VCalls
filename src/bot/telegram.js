@@ -18,11 +18,12 @@ async function sendAlert(item) {
 
   const platform = item.platform || 'Vestiaire';
   const emoji     = platform === 'Wallapop' ? '\uD83D\uDFE2' : '\uD83D\uDD25';
+  const filterLine = item.filterName ? `Filtro: ${item.filterName}\n` : '';
 
   const text = [
     emoji + ' Nuevo artículo en ' + platform,
     '',
-    'Nombre: ' + (item.name || 'Sin nombre'),
+    filterLine + 'Nombre: ' + (item.name || 'Sin nombre'),
     'Precio: ' + (item.price || 'N/D'),
     '',
     item.link || '',

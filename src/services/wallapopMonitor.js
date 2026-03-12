@@ -27,7 +27,8 @@ function saveSeen(ids) {
   }
 }
 
-let isFirstRun = loadSeen().length === 0;
+// true during the first check of every process start, regardless of saved state.
+let isFirstRun = true;
 
 async function checkForNewItems(options) {
   console.log('[Wallapop] Comprobando nuevos artículos...');

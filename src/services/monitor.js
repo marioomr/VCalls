@@ -2,8 +2,9 @@ const { fetchListings } = require('../scrapers/vestiaire');
 const { sendAlert } = require('../bot/telegram');
 const { loadSeenItems, saveSeenItems } = require('../utils/storage');
 
-// true mientras sea la primera ejecución del proceso
-let isFirstRun = loadSeenItems().length === 0;
+// true during the first check of every process start, regardless of saved state.
+// This ensures we never alert for items that were already on the site when the bot launched.
+let isFirstRun = true;
 
 async function checkForNewItems() {
   console.log('[Monitor] Comprobando nuevos artículos...');
