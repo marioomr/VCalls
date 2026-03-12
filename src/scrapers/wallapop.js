@@ -81,6 +81,27 @@ function httpsGet(url, headers) {
   });
 }
 
+// Wallapop has changed their API endpoint several times — try each in order.
+const API_ENDPOINT_CANDIDATES = [
+  'https://api.wallapop.com/api/v3/search',
+  'https://api.wallapop.com/api/v3/general_search',
+  'https://api.wallapop.com/api/v3/search/general',
+];
+
+const API_HEADERS = {
+  'Accept':             'application/json, text/plain, */*',
+  'Accept-Language':    'es-ES,es;q=0.9,en;q=0.8',
+  'Accept-Encoding':    'gzip, deflate, br',
+  'DeviceOS':           '0',
+  'X-DeviceOS':         '0',
+  'Origin':             'https://es.wallapop.com',
+  'Referer':            'https://es.wallapop.com/',
+  'User-Agent':         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Sec-Fetch-Dest':     'empty',
+  'Sec-Fetch-Mode':     'cors',
+  'Sec-Fetch-Site':     'same-site',
+};
+
 async function fetchDirectApi(opts) {
   const params = new URLSearchParams({
     keywords:       opts.keywords,
@@ -93,28 +114,22 @@ async function fetchDirectApi(opts) {
     filters_source: 'default_filters',
   });
 
-  const url = `https://api.wallapop.com/api/v3/general_search?${params}`;
   console.log(`[Wallapop] API directa: q="${opts.keywords}"`);
 
-  try {
-    const data = await httpsGet(url, {
-      'Accept':          'application/json, text/plain, */*',
-      'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-      'DeviceOS':        '0',
-      'Origin':          'https://es.wallapop.com',
-      'Referer':         'https://es.wallapop.com/',
-      'User-Agent':      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    });
-
-    const items = parseItems(data);
-    if (items.length > 0) {
-      console.log(`[Wallapop] ${items.length} artículos vía API directa (q="${opts.keywords}").`);
+  for (const base of API_ENDPOINT_CANDIDATES) {
+    const url = `${base}?${params}`;
+    try {
+      const data  = await httpsGet(url, API_HEADERS);
+      const items = parseItems(data);
+      if (items.length > 0) {
+        console.log(`[Wallapop] ${items.length} artículos vía API directa (${base.split('/').pop()}) q="${opts.keywords}".`);
+        return items;
+      }
+    } catch (err) {
+      console.warn(`[Wallapop] API directa fallida (${base.split('/').pop()}): ${err.message}`);
     }
-    return items;
-  } catch (err) {
-    console.warn(`[Wallapop] API directa fallida: ${err.message}`);
-    return [];
   }
+  return [];
 }
 
 // ----------------------------------------------------------------------------
@@ -163,20 +178,19 @@ async function fetchViaPuppeteer(opts) {
       }
     });
 
-    // Intercept the Wallapop search API response
+    // Intercept ANY successful JSON response from the Wallapop API
     const apiResponsePromise = page.waitForResponse(
       res =>
         res.url().includes('api.wallapop.com') &&
-        (res.url().includes('/search') || res.url().includes('/general_search')) &&
         res.status() >= 200 && res.status() < 300,
-      { timeout: 40000 }
+      { timeout: 45000 }
     ).catch(() => null);
 
     console.log(`[Wallapop] Navegador: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 50000 });
 
-    // Give JS a moment to fire the search XHR after DOM is ready
-    await new Promise(r => setTimeout(r, 3000));
+    // Extra wait for Angular SPA to finish rendering after network idle
+    await new Promise(r => setTimeout(r, 4000));
 
     const apiResponse = await apiResponsePromise;
     if (apiResponse) {
@@ -210,12 +224,18 @@ async function fetchViaPuppeteer(opts) {
 
 async function extractFromDOM(page) {
   try {
+    // Wallapop uses Angular web components (tsl-*) — these must come first.
+    // The class-based selectors are kept as fallback for older page versions.
     const CARD_SEL =
+      'tsl-item-card, tsl-public-item-card, ' +
+      '[data-testid="ItemCardComponent"], [data-testid="item-card"], ' +
       '[class*="ItemCard"], [class*="item-card"], ' +
-      '[data-testid*="item"], article[class*="item"], ' +
-      'a[href*="/item/"]';
+      'article[class*="item"], a[href*="/item/"]';
 
-    await page.waitForSelector(CARD_SEL, { timeout: 8000 }).catch(() => {});
+    await page.waitForSelector(CARD_SEL, { timeout: 12000 }).catch(() => {});
+
+    // Extra wait: Angular may still be rendering child components
+    await new Promise(r => setTimeout(r, 2000));
 
     return await page.$$eval(CARD_SEL, (cards) =>
       cards.map(card => {
@@ -225,7 +245,7 @@ async function extractFromDOM(page) {
           ? href : href ? `https://es.wallapop.com${href}` : '';
         const id      = href.split('/').pop()?.split('?')[0] || '';
         if (!id) return null;
-        const nameEl  = card.querySelector('[class*="title"], [class*="name"], h2, h3');
+        const nameEl  = card.querySelector('[class*="title"], [class*="name"], h2, h3, p');
         const name    = (nameEl?.innerText || anchor?.innerText || '').trim().split('\n')[0];
         const priceEl = card.querySelector('[class*="price"], [class*="Price"]');
         const price   = (priceEl?.innerText || '').trim();
@@ -244,9 +264,11 @@ async function extractFromDOM(page) {
 function parseItems(data) {
   const raw =
     data?.data?.section?.payload?.items ||
-    data?.search_objects ||
-    data?.data?.items    ||
-    data?.items          ||
+    data?.search_objects                ||
+    data?.data?.items                   ||
+    data?.items                         ||
+    data?.result?.items                 ||
+    data?.results                       ||
     [];
 
   if (!Array.isArray(raw)) {
