@@ -3,25 +3,37 @@
 /**
  * src/scrapers/wallapop.js
  * ------------------------
- * Two-tier scraper for Wallapop:
+ * Scraper for Wallapop using the official internal API:
+ *   GET https://api.wallapop.com/api/v3/search/section
  *
- *  1. Direct HTTPS call to Wallapop's internal API — no browser needed,
- *     fast and reliable even on headless servers.
- *  2. Puppeteer fallback with request interception — used only when the
- *     direct API call is blocked or returns no results.
+ * Falls back to Puppeteer if the API is blocked (e.g. server IP rate-limited).
  *
- * Used by both the Electron app (main.js) and the server (filterManager.js).
+ * Supported filter fields (set in filters.json per-filter):
+ *   query        — search keywords (required)
+ *   latitude     — decimal degrees (default: 40.4168 / Madrid)
+ *   longitude    — decimal degrees (default: -3.7038)
+ *   distance     — in km (default: 200)
+ *   orderBy      — "newest" | "price_low_to_high" | "price_high_to_low" (default: newest)
+ *   categoryId   — Wallapop category ID, e.g. 24200 (phones), 12900 (gaming)
+ *   priceMin     — minimum price in €
+ *   priceMax     — maximum price in €
+ *   condition    — "new" | "as_good_as_new" | "good" | "fair" | "has_given_it_all"
  */
 
 const axios  = require('axios');
+const crypto = require('crypto');
 const { getBrowser, closeBrowser, isFatalBrowserError } = require('../utils/browser');
 
 const DEFAULT_LATITUDE  = 40.4168;
 const DEFAULT_LONGITUDE = -3.7038;
-const DEFAULT_DISTANCE  = 200000;
+const DEFAULT_DISTANCE  = 200;   // km
 
-// -- Resource blocking for Puppeteer fallback --------------------------------
-const BLOCKED_TYPES = new Set(['image', 'imageset', 'media', 'font', 'stylesheet', 'manifest']);
+// Static identifiers — generated once per process, mimics a real browser session
+const DEVICE_ID      = crypto.randomUUID();
+const TRACKING_ID    = String(Math.floor(Math.random() * 9e18) + 1e18);
+
+// Resource blocking list for Puppeteer fallback
+const BLOCKED_TYPES   = new Set(['image', 'imageset', 'media', 'font', 'stylesheet', 'manifest']);
 const BLOCKED_DOMAINS = [
   'google-analytics.com', 'googletagmanager.com', 'doubleclick.net',
   'facebook.net', 'hotjar.com', 'segment.com', 'amplitude.com',
@@ -32,13 +44,30 @@ const BLOCKED_DOMAINS = [
 // Public API
 // ----------------------------------------------------------------------------
 
+/**
+ * Fetch Wallapop listings.
+ * @param {object} options
+ * @param {string}  options.keywords
+ * @param {number}  [options.latitude]
+ * @param {number}  [options.longitude]
+ * @param {number}  [options.distance]     — km
+ * @param {string}  [options.orderBy]
+ * @param {number}  [options.categoryId]
+ * @param {number}  [options.priceMin]
+ * @param {number}  [options.priceMax]
+ * @param {string}  [options.condition]
+ */
 async function fetchListings(options) {
   const {
     keywords,
-    latitude  = DEFAULT_LATITUDE,
-    longitude = DEFAULT_LONGITUDE,
-    distance  = DEFAULT_DISTANCE,
-    orderBy   = 'newest',
+    latitude   = DEFAULT_LATITUDE,
+    longitude  = DEFAULT_LONGITUDE,
+    distance   = DEFAULT_DISTANCE,
+    orderBy    = 'newest',
+    categoryId,
+    priceMin,
+    priceMax,
+    condition,
   } = options || {};
 
   if (!keywords) {
@@ -46,79 +75,104 @@ async function fetchListings(options) {
     return [];
   }
 
-  const opts = { keywords, latitude, longitude, distance, orderBy };
+  const opts = { keywords, latitude, longitude, distance, orderBy, categoryId, priceMin, priceMax, condition };
 
-  // Tier 1: direct API — no browser, works on any server
+  // Tier 1: direct API call
   const apiItems = await fetchDirectApi(opts);
   if (apiItems.length > 0) return apiItems;
 
-  // Tier 2: Puppeteer with request interception
+  // Tier 2: Puppeteer fallback (intercepts the same API call from inside the browser)
   console.warn('[Wallapop] API directa sin resultados — usando navegador...');
   return fetchViaPuppeteer(opts);
 }
 
 // ----------------------------------------------------------------------------
-// Tier 1 — Direct API call via axios (handles gzip/deflate automatically)
+// Tier 1 — Direct API call
 // ----------------------------------------------------------------------------
 
-// Wallapop has changed their API endpoint several times — try each in order.
-const API_ENDPOINT_CANDIDATES = [
-  'https://api.wallapop.com/api/v3/search',
-  'https://api.wallapop.com/api/v3/general_search',
-  'https://api.wallapop.com/api/v3/search/general',
-];
-
-const API_HEADERS = {
-  'Accept':          'application/json',
-  'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-  'DeviceOS':        '0',
-  'Origin':          'https://es.wallapop.com',
-  'Referer':         'https://es.wallapop.com/',
-  'User-Agent':      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-};
-
 async function fetchDirectApi(opts) {
+  // distance parameter: filterManager may pass it in metres (200000) or km (200).
+  // Normalise: if value > 2000 assume it's in metres, convert to km.
+  const distanceKm = opts.distance > 2000 ? Math.round(opts.distance / 1000) : opts.distance;
+
   const params = {
-    keywords:       opts.keywords,
-    order_by:       opts.orderBy,
-    latitude:       opts.latitude,
-    longitude:      opts.longitude,
-    distance:       opts.distance,
-    step:           40,
-    start:          0,
-    filters_source: 'default_filters',
+    keywords:              opts.keywords,
+    source:                'search_box',
+    order_by:              opts.orderBy,
+    latitude:              opts.latitude,
+    longitude:             opts.longitude,
+    distance_in_km:        distanceKm,
+    section_type:          'organic_search_results',
+    search_id:             crypto.randomUUID(),
   };
 
-  console.log(`[Wallapop] API directa: q="${opts.keywords}"`);
+  if (opts.categoryId) params.category_id    = opts.categoryId;
+  if (opts.priceMin  ) params.min_sale_price  = opts.priceMin;
+  if (opts.priceMax  ) params.max_sale_price  = opts.priceMax;
+  if (opts.condition ) params.condition_of_good_key = opts.condition;
 
-  for (const base of API_ENDPOINT_CANDIDATES) {
-    const tag = base.split('/').pop();
-    try {
-      const res   = await axios.get(base, { params, headers: API_HEADERS, timeout: 20000 });
-      const items = parseItems(res.data);
-      if (items.length > 0) {
-        console.log(`[Wallapop] ${items.length} artículos vía API (${tag}) q="${opts.keywords}".`);
-        return items;
-      }
-      console.warn(`[Wallapop] API (${tag}) respondió pero sin items: ${JSON.stringify(res.data).slice(0, 150)}`);
-    } catch (err) {
-      const status  = err.response?.status;
-      const snippet = err.response?.data ? JSON.stringify(err.response.data).slice(0, 150) : '';
-      console.warn(`[Wallapop] API fallida (${tag}): ${status || err.message}${snippet ? ' — ' + snippet : ''}`);
+  const filterDesc = [
+    opts.categoryId ? `cat=${opts.categoryId}` : null,
+    opts.priceMin   ? `min=${opts.priceMin}€`  : null,
+    opts.priceMax   ? `max=${opts.priceMax}€`  : null,
+    opts.condition  ? `cond=${opts.condition}` : null,
+  ].filter(Boolean).join(' ');
+
+  console.log(`[Wallapop] API: q="${opts.keywords}"${filterDesc ? ' ' + filterDesc : ''} dist=${distanceKm}km`);
+
+  try {
+    const res = await axios.get('https://api.wallapop.com/api/v3/search/section', {
+      params,
+      timeout: 20000,
+      headers: {
+        'accept':           'application/json, text/plain, */*',
+        'accept-language':  'es,es-ES;q=0.9,en;q=0.8',
+        'deviceos':         '0',
+        'mpid':             TRACKING_ID,
+        'trackinguserid':   TRACKING_ID,
+        'x-appversion':     '817640',
+        'x-deviceid':       DEVICE_ID,
+        'x-deviceos':       '0',
+        'origin':           'https://es.wallapop.com',
+        'referer':          'https://es.wallapop.com/',
+        'sec-fetch-dest':   'empty',
+        'sec-fetch-mode':   'cors',
+        'sec-fetch-site':   'same-site',
+        'user-agent':       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+      },
+    });
+
+    const items = parseItems(res.data);
+    if (items.length > 0) {
+      console.log(`[Wallapop] ${items.length} artículos vía API (q="${opts.keywords}").`);
+    } else {
+      console.warn(`[Wallapop] API respondió pero sin items. Respuesta: ${JSON.stringify(res.data).slice(0, 200)}`);
     }
+    return items;
+  } catch (err) {
+    const status  = err.response?.status;
+    const snippet = err.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : '';
+    console.warn(`[Wallapop] API fallida: ${status || err.message}${snippet ? ' — ' + snippet : ''}`);
+    return [];
   }
-  return [];
 }
 
 // ----------------------------------------------------------------------------
-// Tier 2 — Puppeteer with response interception
+// Tier 2 — Puppeteer fallback (intercepts the same API call from the browser)
 // ----------------------------------------------------------------------------
 
 async function fetchViaPuppeteer(opts) {
-  const searchUrl =
+  const distanceKm = opts.distance > 2000 ? Math.round(opts.distance / 1000) : opts.distance;
+
+  let searchUrl =
     `https://es.wallapop.com/app/search?keywords=${encodeURIComponent(opts.keywords)}` +
-    `&order_by=${opts.orderBy}&distance=${opts.distance}` +
+    `&order_by=${opts.orderBy}&distance=${distanceKm}` +
     `&latitude=${opts.latitude}&longitude=${opts.longitude}`;
+
+  if (opts.categoryId) searchUrl += `&category_ids=${opts.categoryId}`;
+  if (opts.priceMin  ) searchUrl += `&min_sale_price=${opts.priceMin}`;
+  if (opts.priceMax  ) searchUrl += `&max_sale_price=${opts.priceMax}`;
+  if (opts.condition ) searchUrl += `&condition_of_good_key=${opts.condition}`;
 
   let browser;
   try {
@@ -139,10 +193,9 @@ async function fetchViaPuppeteer(opts) {
 
     await page.setUserAgent(
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 ' +
-      '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      '(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
     );
-
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'es-ES,es;q=0.9' });
+    await page.setExtraHTTPHeaders({ 'accept-language': 'es-ES,es;q=0.9' });
 
     await page.setRequestInterception(true);
     page.on('request', req => {
@@ -156,45 +209,36 @@ async function fetchViaPuppeteer(opts) {
       }
     });
 
-    // Event-based capture: collects ALL api.wallapop.com responses,
-    // not just a single matching one. More robust than waitForResponse.
+    // Intercept /search/section responses — the only endpoint with actual listings
     page.on('response', async (res) => {
-      if (!res.url().includes('api.wallapop.com')) return;
-      console.log(`[Wallapop] XHR interceptado: ${res.status()} ${res.url().split('?')[0]}`);
+      if (!res.url().includes('api.wallapop.com/api/v3/search/section')) return;
       if (res.status() < 200 || res.status() >= 300) return;
-      if (capturedItems.length > 0) return; // already got results
+      if (capturedItems.length > 0) return;
       try {
         const data  = await res.json();
         const items = parseItems(data);
         if (items.length > 0) {
           capturedItems = items;
-          console.log(`[Wallapop] ${items.length} artículos interceptados del navegador (q="${opts.keywords}").`);
+          console.log(`[Wallapop] ${items.length} artículos interceptados vía navegador (q="${opts.keywords}").`);
         } else {
-          console.warn(`[Wallapop] XHR sin items: ${JSON.stringify(data).slice(0, 150)}`);
+          console.warn(`[Wallapop] /search/section sin items: ${JSON.stringify(data).slice(0, 200)}`);
         }
-      } catch { /* binary/non-JSON response — skip */ }
+      } catch { /* binary/non-JSON — skip */ }
     });
 
     console.log(`[Wallapop] Navegador: ${searchUrl}`);
-
-    // 'domcontentloaded' instead of 'networkidle2':
-    // networkidle2 NEVER completes on Cloudflare/Angular pages from a headless
-    // server, always timing out at 50s and returning [] silently.
     try {
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
     } catch (navErr) {
-      // A navigation timeout is non-fatal — the page may be partially loaded
-      // and the XHR listener may already have captured data.
       console.warn(`[Wallapop] Advertencia de navegación: ${navErr.message}`);
     }
 
-    // Wait for the Angular app to bootstrap and fire its search XHR.
-    // /v3/search/section fires later than the initial component XHRs.
+    // Wait for Angular to bootstrap and fire the search XHR
     await new Promise(r => setTimeout(r, 12000));
 
     if (capturedItems.length > 0) return capturedItems;
 
-    // DOM fallback — try Angular web components and classic selectors.
+    // DOM fallback
     const domItems = await extractFromDOM(page);
     console.log(`[Wallapop] ${domItems.length} artículos del DOM (q="${opts.keywords}").`);
     return domItems;
@@ -209,13 +253,11 @@ async function fetchViaPuppeteer(opts) {
 }
 
 // ----------------------------------------------------------------------------
-// DOM fallback
+// DOM fallback — Wallapop Angular web components
 // ----------------------------------------------------------------------------
 
 async function extractFromDOM(page) {
   try {
-    // Wallapop uses Angular web components (tsl-*) — these must come first.
-    // The class-based selectors are kept as fallback for older page versions.
     const CARD_SEL =
       'tsl-item-card, tsl-public-item-card, ' +
       '[data-testid="ItemCardComponent"], [data-testid="item-card"], ' +
@@ -223,8 +265,6 @@ async function extractFromDOM(page) {
       'article[class*="item"], a[href*="/item/"]';
 
     await page.waitForSelector(CARD_SEL, { timeout: 12000 }).catch(() => {});
-
-    // Extra wait: Angular may still be rendering child components
     await new Promise(r => setTimeout(r, 2000));
 
     return await page.$$eval(CARD_SEL, (cards) =>
@@ -248,22 +288,22 @@ async function extractFromDOM(page) {
 }
 
 // ----------------------------------------------------------------------------
-// JSON parsers
+// Parse items from /api/v3/search/section response
 // ----------------------------------------------------------------------------
 
 function parseItems(data) {
+  // Primary path: /v3/search/section → data.data.section.items
   const raw =
-    data?.data?.section?.items         ||   // /v3/search/section (current endpoint)
-    data?.data?.section?.payload?.items ||   // legacy endpoint format
-    data?.search_objects                ||   // older search API
-    data?.data?.items                   ||   // generic data.data.items
-    data?.items                         ||   // generic .items
-    data?.result?.items                 ||   // result wrapper
-    data?.results                       ||   // flat results array
+    data?.data?.section?.items          ||
+    data?.data?.section?.payload?.items ||  // legacy format (older endpoint)
+    data?.search_objects                ||
+    data?.data?.items                   ||
+    data?.items                         ||
+    data?.results                       ||
     [];
 
   if (!Array.isArray(raw)) {
-    console.warn('[Wallapop] Respuesta inesperada:', JSON.stringify(data).slice(0, 200));
+    console.warn('[Wallapop] Respuesta inesperada:', JSON.stringify(data).slice(0, 300));
     return [];
   }
 

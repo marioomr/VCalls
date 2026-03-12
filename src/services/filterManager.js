@@ -98,11 +98,15 @@ async function tick(filter) {
   try {
     if (platform === 'wallapop') {
       items = await fetchWallapop({
-        keywords:  filter.query,
-        latitude:  filter.latitude  || parseFloat(process.env.WALLAPOP_LATITUDE)  || 40.4168,
-        longitude: filter.longitude || parseFloat(process.env.WALLAPOP_LONGITUDE) || -3.7038,
-        distance:  filter.distance  || parseInt(process.env.WALLAPOP_DISTANCE, 10) || 200000,
-        orderBy:   filter.orderBy   || 'newest',
+        keywords:   filter.query,
+        latitude:   filter.latitude   || parseFloat(process.env.WALLAPOP_LATITUDE)  || 40.4168,
+        longitude:  filter.longitude  || parseFloat(process.env.WALLAPOP_LONGITUDE) || -3.7038,
+        distance:   filter.distance   || parseInt(process.env.WALLAPOP_DISTANCE, 10) || 200,
+        orderBy:    filter.orderBy    || 'newest',
+        categoryId: filter.categoryId,
+        priceMin:   filter.priceMin,
+        priceMax:   filter.priceMax,
+        condition:  filter.condition,
       });
     } else {
       items = await fetchVestiaire({
@@ -174,11 +178,17 @@ function startFilter(filter) {
     return;
   }
 
-  const interval     = filter.interval || parseInt(process.env.CHECK_INTERVAL, 10) || 300_000;
+  const interval      = filter.interval || parseInt(process.env.CHECK_INTERVAL, 10) || 300_000;
   const platformLabel = (filter.platform || 'vestiaire').toUpperCase();
   const sortLabel     = filter.sort ? ` | sort: ${filter.sort}` : '';
+  const extras = [
+    filter.categoryId ? `cat=${filter.categoryId}` : null,
+    filter.priceMin   ? `min=${filter.priceMin}€`  : null,
+    filter.priceMax   ? `max=${filter.priceMax}€`  : null,
+    filter.condition  ? `cond=${filter.condition}` : null,
+  ].filter(Boolean).join(' ');
 
-  console.log(`[FilterManager] ▶ "${name}" [${platformLabel}] q="${filter.query}"${sortLabel} — cada ${interval / 1000}s`);
+  console.log(`[FilterManager] ▶ "${name}" [${platformLabel}] q="${filter.query}"${sortLabel}${extras ? ' | ' + extras : ''} — cada ${interval / 1000}s`);
 
   const state = { isFirstRun: true, timer: null };
   _running.set(name, state);
