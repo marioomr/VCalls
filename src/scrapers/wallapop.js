@@ -14,10 +14,15 @@
  *   longitude    — decimal degrees (default: -3.7038)
  *   distance     — in km (default: 200)
  *   orderBy      — "newest" | "price_low_to_high" | "price_high_to_low" (default: newest)
- *   categoryId   — Wallapop category ID, e.g. 24200 (phones), 12900 (gaming)
+ *   categoryId   — Wallapop category ID:
+ *                  12545 = Tecnología  |  16000 = Móviles  |  12465 = Consolas
+ *                  15959 = Ordenadores |  12467 = Cámaras  |  (ver URL de la web)
  *   priceMin     — minimum price in €
  *   priceMax     — maximum price in €
- *   condition    — "new" | "as_good_as_new" | "good" | "fair" | "has_given_it_all"
+ *   condition    — one value OR array of values:
+ *                  "new", "as_good_as_new", "good", "fair", "has_given_it_all"
+ *   isShippable  — true to show only items with shipping available
+ *   timeFilter   — "today" | "lastWeek" | "lastMonth"
  */
 
 const axios  = require('axios');
@@ -60,14 +65,16 @@ const BLOCKED_DOMAINS = [
 async function fetchListings(options) {
   const {
     keywords,
-    latitude   = DEFAULT_LATITUDE,
-    longitude  = DEFAULT_LONGITUDE,
-    distance   = DEFAULT_DISTANCE,
-    orderBy    = 'newest',
+    latitude    = DEFAULT_LATITUDE,
+    longitude   = DEFAULT_LONGITUDE,
+    distance    = DEFAULT_DISTANCE,
+    orderBy     = 'newest',
     categoryId,
     priceMin,
     priceMax,
     condition,
+    isShippable,
+    timeFilter,
   } = options || {};
 
   if (!keywords) {
@@ -75,7 +82,7 @@ async function fetchListings(options) {
     return [];
   }
 
-  const opts = { keywords, latitude, longitude, distance, orderBy, categoryId, priceMin, priceMax, condition };
+  const opts = { keywords, latitude, longitude, distance, orderBy, categoryId, priceMin, priceMax, condition, isShippable, timeFilter };
 
   // Tier 1: direct API call
   const apiItems = await fetchDirectApi(opts);
@@ -106,16 +113,26 @@ async function fetchDirectApi(opts) {
     search_id:             crypto.randomUUID(),
   };
 
-  if (opts.categoryId) params.category_id    = opts.categoryId;
-  if (opts.priceMin  ) params.min_sale_price  = opts.priceMin;
-  if (opts.priceMax  ) params.max_sale_price  = opts.priceMax;
-  if (opts.condition ) params.condition_of_good_key = opts.condition;
+  if (opts.categoryId ) params.category_id    = opts.categoryId;
+  if (opts.priceMin   ) params.min_sale_price  = opts.priceMin;
+  if (opts.priceMax   ) params.max_sale_price  = opts.priceMax;
+  if (opts.isShippable) params.is_shippable    = true;
+  if (opts.timeFilter ) params.time_filter     = opts.timeFilter;
+
+  // condition is multi-select: accept a single string or an array
+  const condArr = opts.condition
+    ? (Array.isArray(opts.condition) ? opts.condition : [opts.condition]).filter(Boolean)
+    : [];
+  // axios serialises arrays as condition[]=... by default; we need condition=new&condition=good
+  // so we remove it from params and append manually via paramsSerializer below.
 
   const filterDesc = [
-    opts.categoryId ? `cat=${opts.categoryId}` : null,
-    opts.priceMin   ? `min=${opts.priceMin}€`  : null,
-    opts.priceMax   ? `max=${opts.priceMax}€`  : null,
-    opts.condition  ? `cond=${opts.condition}` : null,
+    opts.categoryId  ? `cat=${opts.categoryId}`           : null,
+    opts.priceMin    ? `min=${opts.priceMin}€`            : null,
+    opts.priceMax    ? `max=${opts.priceMax}€`            : null,
+    condArr.length   ? `cond=${condArr.join(',')}`        : null,
+    opts.isShippable ? 'envío'                            : null,
+    opts.timeFilter  ? `tiempo=${opts.timeFilter}`        : null,
   ].filter(Boolean).join(' ');
 
   console.log(`[Wallapop] API: q="${opts.keywords}"${filterDesc ? ' ' + filterDesc : ''} dist=${distanceKm}km`);
@@ -123,6 +140,16 @@ async function fetchDirectApi(opts) {
   try {
     const res = await axios.get('https://api.wallapop.com/api/v3/search/section', {
       params,
+      // Serialize condition as repeated params: condition=new&condition=good
+      paramsSerializer: (p) => {
+        const base = new URLSearchParams();
+        for (const [k, v] of Object.entries(p)) {
+          if (v === undefined || v === null) continue;
+          base.append(k, v);
+        }
+        for (const c of condArr) base.append('condition', c);
+        return base.toString();
+      },
       timeout: 20000,
       headers: {
         'accept':           'application/json, text/plain, */*',
@@ -169,10 +196,16 @@ async function fetchViaPuppeteer(opts) {
     `&order_by=${opts.orderBy}&distance=${distanceKm}` +
     `&latitude=${opts.latitude}&longitude=${opts.longitude}`;
 
-  if (opts.categoryId) searchUrl += `&category_ids=${opts.categoryId}`;
-  if (opts.priceMin  ) searchUrl += `&min_sale_price=${opts.priceMin}`;
-  if (opts.priceMax  ) searchUrl += `&max_sale_price=${opts.priceMax}`;
-  if (opts.condition ) searchUrl += `&condition_of_good_key=${opts.condition}`;
+  if (opts.categoryId ) searchUrl += `&category_ids=${opts.categoryId}`;
+  if (opts.priceMin   ) searchUrl += `&min_sale_price=${opts.priceMin}`;
+  if (opts.priceMax   ) searchUrl += `&max_sale_price=${opts.priceMax}`;
+  if (opts.isShippable) searchUrl += `&is_shippable=true`;
+  if (opts.timeFilter ) searchUrl += `&time_filter=${opts.timeFilter}`;
+  // condition: multi-select — append each value separately
+  const puppCondArr = opts.condition
+    ? (Array.isArray(opts.condition) ? opts.condition : [opts.condition]).filter(Boolean)
+    : [];
+  for (const c of puppCondArr) searchUrl += `&condition=${encodeURIComponent(c)}`;
 
   let browser;
   try {

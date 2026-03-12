@@ -98,15 +98,17 @@ async function tick(filter) {
   try {
     if (platform === 'wallapop') {
       items = await fetchWallapop({
-        keywords:   filter.query,
-        latitude:   filter.latitude   || parseFloat(process.env.WALLAPOP_LATITUDE)  || 40.4168,
-        longitude:  filter.longitude  || parseFloat(process.env.WALLAPOP_LONGITUDE) || -3.7038,
-        distance:   filter.distance   || parseInt(process.env.WALLAPOP_DISTANCE, 10) || 200,
-        orderBy:    filter.orderBy    || 'newest',
-        categoryId: filter.categoryId,
-        priceMin:   filter.priceMin,
-        priceMax:   filter.priceMax,
-        condition:  filter.condition,
+        keywords:    filter.query,
+        latitude:    filter.latitude   || parseFloat(process.env.WALLAPOP_LATITUDE)   || 40.4168,
+        longitude:   filter.longitude  || parseFloat(process.env.WALLAPOP_LONGITUDE)  || -3.7038,
+        distance:    filter.distance   || parseInt(process.env.WALLAPOP_DISTANCE, 10) || 200,
+        orderBy:     filter.orderBy    || 'newest',
+        categoryId:  filter.categoryId,
+        priceMin:    filter.priceMin,
+        priceMax:    filter.priceMax,
+        condition:   filter.condition,
+        isShippable: filter.isShippable,
+        timeFilter:  filter.timeFilter,
       });
     } else {
       items = await fetchVestiaire({

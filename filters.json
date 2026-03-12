@@ -14,21 +14,26 @@
     "sort": "recency",
     "interval": 20000,
     "enabled": false
-  },{
+  },
+  {
     "name": "Wallapop -- apple",
     "platform": "wallapop",
     "query": "iphone",
-    "interval": 40000,
-    "enabled": true
+    "interval": 20000,
+    "enabled": false
   },
   {
-    "name": "Nike Wallapop Madrid",
+    "name": "auriculares",
     "platform": "wallapop",
-    "query": "nike air max",
-    "interval": 120000,
-    "enabled": false,
-    "latitude": 40.4168,
-    "longitude": -3.7038,
-    "distance": 200000
+    "query": "earpods",
+    "interval": 30000,
+    "enabled": true,
+    "categoryId": 16000,
+    "priceMin": 10,
+    "priceMax": 1000,
+    "condition": ["new", "as_good_as_new", "good"],
+    "isShippable": false,
+    "timeFilter": ""
   }
 ]
+
