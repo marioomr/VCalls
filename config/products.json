@@ -1,0 +1,76 @@
+{
+    "_comentario": "Edita este archivo para añadir, modificar o desactivar productos. El bot recarga este archivo en cada ciclo.",
+    "interval_seconds": 30,
+    "products": [
+        {
+            "name": "Iphone",
+            "enabled": true,
+            "query": "apple",
+            "category_ids": [
+                12545
+            ],
+            "min_sale_price": 0,
+            "max_sale_price": 8000
+        },
+        {
+            "name": "Iphone",
+            "enabled": false,
+            "query": "apple",
+            "category_ids": [
+                12465
+            ],
+            "subcategory_ids": [
+                11031
+            ],
+            "min_sale_price": 0,
+            "max_sale_price": 80,
+            "limit": 40
+        },
+        {
+            "name": "iphone 13",
+            "enabled": false,
+            "query": "iphone 13",
+            "category_ids": [],
+            "subcategory_ids": [],
+            "min_sale_price": 200,
+            "max_sale_price": 600,
+            "limit": 40
+        },
+        {
+            "name": "bolsos mujer",
+            "enabled": false,
+            "query": "",
+            "category_ids": [
+                12465
+            ],
+            "subcategory_ids": [
+                10152
+            ],
+            "limit": 40
+        },
+        {
+            "name": "zapatillas nike",
+            "enabled": false,
+            "query": "nike",
+            "category_ids": [
+                12465
+            ],
+            "subcategory_ids": [
+                11044
+            ],
+            "max_sale_price": 120,
+            "limit": 40
+        },
+        {
+            "name": "airpods",
+            "enabled": false,
+            "query": "airpods",
+            "category_ids": [
+                12545
+            ],
+            "subcategory_ids": [],
+            "max_sale_price": 100,
+            "limit": 40
+        }
+    ]
+}
