@@ -13,11 +13,7 @@ def run_filter(filter_row: dict, service) -> list:
     filter_id = filter_row.get("id")
     marketplace = str(filter_row.get("marketplace", "wallapop")).lower()
     name = filter_row.get("name", "?")
-    params = filter_row.get("parameters", {})
-
-    logger.info(f"[{marketplace}:{name}] Buscando articulos...")
-
-    items = service.search(params)
+    items = service.search(filter_row)
 
     if not items:
         logger.warning(f"[{marketplace}:{name}] El marketplace no devolvio articulos.")
@@ -38,8 +34,11 @@ def run_filter(filter_row: dict, service) -> list:
         if not item_id:
             continue
         if is_item_seen(marketplace, item_id):
-            continue
+            # API comes in newest order; once one seen item appears,
+            # the rest are older and can be skipped.
+            break
         mark_item_seen(marketplace, item_id)
+        logger.info("New item detected")
         new_items.append(item)
 
     if not new_items:

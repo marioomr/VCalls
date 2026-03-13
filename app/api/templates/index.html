@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sniper Filters</title>
+</head>
+<body>
+  <h1>Filters</h1>
+
+  <p>TELEGRAM_TOKEN loaded: {{ telegram_token_set }}</p>
+  <p>TELEGRAM_CHAT_ID loaded: {{ telegram_chat_id_set }}</p>
+
+  <h2>Current Filters</h2>
+  <table border="1" cellpadding="6" cellspacing="0">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Marketplace</th>
+        <th>Name</th>
+        <th>Enabled</th>
+        <th>Parameters</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in filters %}
+      <tr>
+        <td>{{ f.id }}</td>
+        <td>{{ f.marketplace }}</td>
+        <td>{{ f.name }}</td>
+        <td>{{ f.enabled }}</td>
+        <td><pre style="margin:0">{{ f.parameters | tojson(indent=2) }}</pre></td>
+        <td>
+          <form method="post" action="/ui/filters/{{ f.id }}/delete">
+            <button type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6">No filters found.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Add Filter</h2>
+  <form method="post" action="/ui/filters">
+    <p>
+      <label>Marketplace</label><br />
+      <input type="text" name="marketplace" value="wallapop" required />
+    </p>
+    <p>
+      <label>Name</label><br />
+      <input type="text" name="name" placeholder="cheap nike" required />
+    </p>
+    <p>
+      <label>Enabled</label><br />
+      <input type="checkbox" name="enabled" checked />
+    </p>
+    <p>
+      <label>Parameters JSON</label><br />
+      <textarea name="parameters_json" rows="8" cols="60">{
+  "keyword": "nike",
+  "max_price": 80
+}</textarea>
+    </p>
+    <button type="submit">Add filter</button>
+  </form>
+</body>
+</html>

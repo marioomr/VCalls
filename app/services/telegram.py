@@ -50,6 +50,7 @@ def send(product: dict, item: dict) -> None:
         )
         if resp.status_code == 200:
             logger.info(f"[Telegram] Alerta enviada: {title}")
+            logger.info("Notification sent")
         else:
             logger.error(f"[Telegram] Error HTTP {resp.status_code}: {resp.text[:200]}")
     except Exception as e:

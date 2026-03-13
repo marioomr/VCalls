@@ -1,66 +1,70 @@
+# Sniper Worker + API
+
+Wallapop monitoring project with:
+- Worker process (24/7 search + Telegram alerts)
+- SQLite storage
+- FastAPI server for filter management and a minimal web UI
+
+## Environment Variables
+
+Create a `.env` file in project root with:
 
 ```
-VCalls
-├─ data
-│  ├─ seenItems.json
-│  ├─ seen_balenciaga_vestiaire.json
-│  ├─ seen_nike_vestiaire.json
-│  ├─ seen_vestiaire_adidas.json
-│  ├─ seen_wallapop_--_apple.json
-│  └─ seen_wallapop_nike.json
-├─ filters.json
-├─ index.html
-├─ main.js
-├─ package-lock.json
-├─ package.json
-├─ preload.js
-├─ renderer.js
-└─ src
-   ├─ bot
-   │  └─ telegram.js
-   ├─ index.js
-   ├─ scrapers
-   │  ├─ vestiaire.js
-   │  └─ wallapop.js
-   ├─ services
-   │  ├─ filterManager.js
-   │  ├─ monitor.js
-   │  └─ wallapopMonitor.js
-   ├─ telegram.js
-   ├─ utils
-   │  ├─ browser.js
-   │  └─ storage.js
-   └─ vestiaire.js
+TELEGRAM_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+CHECK_INTERVAL=30
+```
+
+Loaded via `python-dotenv` in both worker and API server.
+
+## Install
 
 ```
+pip install -r requirements.txt
 ```
-VCalls
-├─ README.md
-├─ config
-│  └─ products.json
-├─ data
-│  ├─ seenItems.json
-│  ├─ seen_auriculares.json
-│  ├─ seen_balenciaga_vestiaire.json
-│  ├─ seen_iphone_barato.json
-│  ├─ seen_items.json
-│  ├─ seen_nike_vestiaire.json
-│  ├─ seen_vestiaire_adidas.json
-│  ├─ seen_wallapop_--_apple.json
-│  └─ seen_wallapop_nike.json
-├─ main.js
-├─ main.py
-├─ package-lock.json
-├─ package.json
-├─ requirements.txt
-└─ src
-   ├─ __init__.py
-   ├─ filters.py
-   ├─ logger.py
-   ├─ scheduler.py
-   ├─ search_worker.py
-   ├─ storage.py
-   ├─ telegram.py
-   └─ wallapop_api.py
+
+## Run Worker
 
 ```
+python app/worker.py
+```
+
+The worker loads filters from SQLite table `filters` and deduplicates using `seen_items`.
+
+## Run API Server
+
+```
+uvicorn app.api.server:app --reload
+```
+
+Open:
+- http://127.0.0.1:8000/ for the minimal HTML interface
+- http://127.0.0.1:8000/docs for Swagger
+
+## API Endpoints
+
+- `GET /filters`
+- `POST /filters`
+- `DELETE /filters/{id}`
+
+Example `POST /filters` body:
+
+```json
+{
+  "marketplace": "wallapop",
+  "name": "cheap nike",
+  "parameters": {
+    "keyword": "nike",
+    "max_price": 80
+  }
+}
+```
+
+## Minimal Web Interface
+
+The root page (`/`) supports:
+- viewing filters
+- adding filters
+- deleting filters
+
+No styling is applied by design.

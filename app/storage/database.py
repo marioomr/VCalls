@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import sqlite3
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

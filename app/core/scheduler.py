@@ -43,7 +43,7 @@ def start(get_filters, get_interval, process_filter, on_new_item=None) -> None:
             raise
         except Exception as e:
             logger.error(f"[Scheduler] Error inesperado en ciclo: {e}")
-            interval = 30
+            interval = 25
 
         sleep_time = _jitter(max(interval, 1))
         logger.info(f"[Scheduler] Esperando {sleep_time:.1f}s hasta el proximo ciclo...")
