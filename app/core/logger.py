@@ -11,12 +11,22 @@ from datetime import datetime
 _LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "logs")
 
 _COLOURS = {
-    "DEBUG": "\033[37m",
-    "INFO": "\033[97m",
+    "DEBUG": "\033[36m",
+    "INFO": "\033[92m",
     "WARNING": "\033[93m",
     "ERROR": "\033[91m",
-    "CRITICAL": "\033[41m",
+    "CRITICAL": "\033[41;97m",
+    "DIM": "\033[90m",
+    "BOLD": "\033[1m",
     "RESET": "\033[0m",
+}
+
+_LEVEL_SYMBOL = {
+    "DEBUG": "[..]",
+    "INFO": "[OK]",
+    "WARNING": "[!!]",
+    "ERROR": "[XX]",
+    "CRITICAL": "[!!]",
 }
 
 
@@ -24,12 +34,21 @@ class _ColouredFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         colour = _COLOURS.get(record.levelname, "")
         reset = _COLOURS["RESET"]
-        record.levelname = f"{colour}{record.levelname:<8}{reset}"
+
+        original_level = record.levelname
+        symbol = _LEVEL_SYMBOL.get(original_level, "[--]")
+        record.levelname = f"{colour}{symbol} {original_level:<8}{reset}"
+        record.name = f"{_COLOURS['DIM']}{record.name}{reset}"
+
+        if isinstance(record.msg, str):
+            record.msg = record.msg.replace("[NEW_FILTER]", f"{_COLOURS['BOLD']}[NEW_FILTER]{reset}{colour}")
+            record.msg = record.msg.replace("[NEW]", f"{_COLOURS['BOLD']}[NEW]{reset}{colour}")
+
         return super().format(record)
 
 
 def setup(log_to_file: bool = False, level: int = logging.INFO) -> None:
-    fmt = "%(asctime)s  %(levelname)s  %(message)s"
+    fmt = "%(asctime)s  %(levelname)s  %(name)s  %(message)s"
     datefmt = "%Y-%m-%d %H:%M:%S"
 
     handlers = []

@@ -31,7 +31,7 @@ def run_cycle(filters: list, process_filter, on_new_item=None) -> None:
     logger.info("[Scheduler] Ciclo completado.")
 
 
-def start(get_filters, get_interval, process_filter, on_new_item=None) -> None:
+def start(get_filters, get_interval, process_filter, on_new_item=None, random_sleep_range=None) -> None:
     logger.info("[Scheduler] Bot arrancado.")
 
     while True:
@@ -45,6 +45,10 @@ def start(get_filters, get_interval, process_filter, on_new_item=None) -> None:
             logger.error(f"[Scheduler] Error inesperado en ciclo: {e}")
             interval = 25
 
-        sleep_time = _jitter(max(interval, 1))
+        if random_sleep_range:
+            min_s, max_s = random_sleep_range
+            sleep_time = random.uniform(float(min_s), float(max_s))
+        else:
+            sleep_time = _jitter(max(interval, 1))
         logger.info(f"[Scheduler] Esperando {sleep_time:.1f}s hasta el proximo ciclo...")
         time.sleep(sleep_time)

@@ -1,9 +1,9 @@
 # Sniper Worker + API
 
-Wallapop monitoring project with:
+Marketplace monitoring project (currently Wallapop) with:
 - Worker process (24/7 search + Telegram alerts)
-- SQLite storage
-- FastAPI server for filter management and a minimal web UI
+- SQLite storage for filters, seen items, and item history
+- FastAPI backend + web GUI (filters/items tabs)
 
 ## Environment Variables
 
@@ -29,7 +29,7 @@ pip install -r requirements.txt
 python app/worker.py
 ```
 
-The worker loads filters from SQLite table `filters` and deduplicates using `seen_items`.
+The worker loads enabled filters from SQLite (`filters`), seeds first-run items into `seen_items` without notifications, and then only alerts on brand-new items.
 
 ## Run API Server
 
@@ -43,28 +43,81 @@ Open:
 
 ## API Endpoints
 
-- `GET /filters`
-- `POST /filters`
-- `DELETE /filters/{id}`
+- `GET /api/filters`
+- `POST /api/filters`
+- `PUT /api/filters/{id}`
+- `POST /api/filters/{id}/toggle`
+- `DELETE /api/filters/{id}`
+- `POST /api/filters/start_all`
+- `POST /api/filters/stop_all`
+- `GET /api/items`
+- `GET /api/items/search?q=`
 
-Example `POST /filters` body:
+Example `POST /api/filters` body:
 
 ```json
 {
-  "marketplace": "wallapop",
   "name": "cheap nike",
-  "parameters": {
-    "keyword": "nike",
-    "max_price": 80
-  }
+  "marketplace": "wallapop",
+  "keywords": "nike",
+  "category_id": "12465",
+  "min_price": 10,
+  "max_price": 80,
+  "enabled": true
 }
 ```
 
-## Minimal Web Interface
+## Web Interface
 
-The root page (`/`) supports:
-- viewing filters
-- adding filters
-- deleting filters
+- Tab `Filtros`: list, add, edit (modal), delete, toggle enabled/play/pause, start all, stop all
+- Tab `Items`: latest detected items ordered by `detected_at DESC` + title search
 
-No styling is applied by design.
+## Database
+
+SQLite file: `data/sniper.db`
+
+Tables:
+- `filters` (`id`, `name`, `marketplace`, `keywords`, `category_id`, `min_price`, `max_price`, `enabled`, `created_at`)
+- `items` (`id`, `item_id` UNIQUE, `title`, `price`, `city`, `marketplace`, `url`, `created_at`, `detected_at`, `filter_id`)
+- `seen_items` (`item_id`, `filter_id`, `first_seen_at`)
+
+Legacy `data/seen*.json` files are no longer used.
+```
+VCalls
+├─ README.md
+├─ app
+│  ├─ __init__.py
+│  ├─ api
+│  │  ├─ __init__.py
+│  │  ├─ server.py
+│  │  └─ templates
+│  │     └─ index.html
+│  ├─ core
+│  │  ├─ __init__.py
+│  │  ├─ filters.py
+│  │  ├─ logger.py
+│  │  ├─ scheduler.py
+│  │  └─ search_worker.py
+│  ├─ services
+│  │  ├─ __init__.py
+│  │  ├─ marketplaces
+│  │  │  ├─ __init__.py
+│  │  │  ├─ base_marketplace.py
+│  │  │  ├─ wallapop_browser.py
+│  │  │  └─ wallapop_service.py
+│  │  └─ telegram.py
+│  ├─ storage
+│  │  ├─ __init__.py
+│  │  └─ database.py
+│  └─ worker.py
+├─ config
+│  └─ products.json
+├─ data
+│  ├─ sniper.db
+│  ├─ sniper.db-shm
+│  └─ sniper.db-wal
+├─ main.py
+├─ package-lock.json
+└─ requirements.txt
+
+```

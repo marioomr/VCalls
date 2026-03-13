@@ -3,70 +3,394 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sniper Filters</title>
+  <title>Sniper Dashboard</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f5f5f5; }
+    .tabs { display: flex; gap: 10px; margin: 12px 0; }
+    .tab-btn { padding: 8px 12px; border: 1px solid #999; background: #fafafa; cursor: pointer; }
+    .tab-btn.active { background: #eaeaea; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .inline { display: inline; }
+    .muted { color: #555; font-size: 13px; }
+    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; }
+    .form-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    dialog { width: min(700px, 95vw); }
+  </style>
 </head>
 <body>
-  <h1>Filters</h1>
+  <h1>Sniper Dashboard</h1>
 
-  <p>TELEGRAM_TOKEN loaded: {{ telegram_token_set }}</p>
-  <p>TELEGRAM_CHAT_ID loaded: {{ telegram_chat_id_set }}</p>
+  <p class="muted">TELEGRAM_TOKEN loaded: {{ telegram_token_set }} | TELEGRAM_CHAT_ID loaded: {{ telegram_chat_id_set }}</p>
 
-  <h2>Current Filters</h2>
-  <table border="1" cellpadding="6" cellspacing="0">
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Marketplace</th>
-        <th>Name</th>
-        <th>Enabled</th>
-        <th>Parameters</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for f in filters %}
-      <tr>
-        <td>{{ f.id }}</td>
-        <td>{{ f.marketplace }}</td>
-        <td>{{ f.name }}</td>
-        <td>{{ f.enabled }}</td>
-        <td><pre style="margin:0">{{ f.parameters | tojson(indent=2) }}</pre></td>
-        <td>
-          <form method="post" action="/ui/filters/{{ f.id }}/delete">
-            <button type="submit">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="6">No filters found.</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="filters">Filtros</button>
+    <button class="tab-btn" data-tab="items">Items</button>
+  </div>
 
-  <h2>Add Filter</h2>
-  <form method="post" action="/ui/filters">
+  <section id="tab-filters" class="tab-content active">
+    <h2>Filtros</h2>
+    <div class="actions">
+      <button id="open-add-filter" type="button">Anadir filtro</button>
+      <form class="inline" method="post" action="/ui/filters/start_all"><button type="submit">Iniciar todos</button></form>
+      <form class="inline" method="post" action="/ui/filters/stop_all"><button type="submit">Parar todos</button></form>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Marketplace</th>
+          <th>Keywords</th>
+          <th>Categoria</th>
+          <th>Subcategoria</th>
+          <th>Brand</th>
+          <th>Condition</th>
+          <th>Color</th>
+          <th>Size</th>
+          <th>Shippable</th>
+          <th>Precio min</th>
+          <th>Precio max</th>
+          <th>Estado</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in filters %}
+        <tr>
+          <td>{{ f.name }}</td>
+          <td>{{ f.marketplace }}</td>
+          <td>{{ f.keywords }}</td>
+          <td>{{ f.category_id or '' }}</td>
+          <td>{{ f.subcategory_id or '' }}</td>
+          <td>{{ f.brand or '' }}</td>
+          <td>{{ f.condition or '' }}</td>
+          <td>{{ f.color or '' }}</td>
+          <td>{{ f.size or '' }}</td>
+          <td>{{ f.is_shippable if f.is_shippable is not none else '' }}</td>
+          <td>{{ f.min_price or '' }}</td>
+          <td>{{ f.max_price or '' }}</td>
+          <td>{{ f.enabled }}</td>
+          <td>
+            <button
+              type="button"
+              class="edit-filter-btn"
+              data-id="{{ f.id }}"
+              data-name="{{ f.name }}"
+              data-marketplace="{{ f.marketplace }}"
+              data-keywords="{{ f.keywords }}"
+              data-category-id="{{ f.category_id or '' }}"
+              data-subcategory-id="{{ f.subcategory_id or '' }}"
+              data-brand="{{ f.brand or '' }}"
+              data-condition="{{ f.condition or '' }}"
+              data-color="{{ f.color or '' }}"
+              data-size="{{ f.size or '' }}"
+              data-is-shippable="{{ 'true' if f.is_shippable else 'false' }}"
+              data-latitude="{{ f.latitude or '' }}"
+              data-longitude="{{ f.longitude or '' }}"
+              data-distance-km="{{ f.distance_km or '' }}"
+              data-min-price="{{ f.min_price or '' }}"
+              data-max-price="{{ f.max_price or '' }}"
+              data-enabled="{{ 'true' if f.enabled else 'false' }}"
+            >
+              Editar
+            </button>
+            <form class="inline" method="post" action="/ui/filters/{{ f.id }}/toggle">
+              <input type="hidden" name="enabled" value="{{ 'false' if f.enabled else 'true' }}" />
+              <button type="submit">{{ 'Pausa' if f.enabled else 'Play' }}</button>
+            </form>
+            <form class="inline" method="post" action="/ui/filters/{{ f.id }}/delete">
+              <button type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="15">No filters found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <section id="tab-items" class="tab-content">
+    <h2>Items</h2>
     <p>
-      <label>Marketplace</label><br />
-      <input type="text" name="marketplace" value="wallapop" required />
+      <input id="items-search" type="text" placeholder="Buscar por titulo" />
+      <button id="items-search-btn" type="button">Buscar</button>
+      <form class="inline" method="post" action="/ui/items/reset"><button type="submit">Reset (Borrar todos)</button></form>
     </p>
-    <p>
-      <label>Name</label><br />
-      <input type="text" name="name" placeholder="cheap nike" required />
-    </p>
-    <p>
-      <label>Enabled</label><br />
-      <input type="checkbox" name="enabled" checked />
-    </p>
-    <p>
-      <label>Parameters JSON</label><br />
-      <textarea name="parameters_json" rows="8" cols="60">{
-  "keyword": "nike",
-  "max_price": 80
-}</textarea>
-    </p>
-    <button type="submit">Add filter</button>
-  </form>
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Price</th>
+          <th>City</th>
+          <th>Marketplace</th>
+          <th>Detected At</th>
+          <th>Link</th>
+        </tr>
+      </thead>
+      <tbody id="items-body">
+        {% for item in items %}
+        <tr>
+          <td>{{ item.title }}</td>
+          <td>{{ item.price }}</td>
+          <td>{{ item.city }}</td>
+          <td>{{ item.marketplace }}</td>
+          <td>{{ item.detected_at }}</td>
+          <td>{% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noopener">Open</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6">No items detected yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const SUBCATEGORY_OPTIONS = {
+        '12465': [
+          { id: '10152', label: 'Bolsos y mochilas' },
+          { id: '9550', label: 'Cinturones' },
+          { id: '9567', label: 'Gafas de sol' },
+          { id: '9610', label: 'Guantes' },
+          { id: '9645', label: 'Accesorios para el cabello' },
+          { id: '10162', label: 'Sombreros y gorras' },
+          { id: '10153', label: 'Bufandas y chales' },
+          { id: '9584', label: 'Corbatas y panuelos' },
+          { id: '9635', label: 'Paraguas' },
+          { id: '9562', label: 'Relojes' },
+          { id: '9607', label: 'Otros accesorios' }
+        ]
+      };
+
+      function refreshSubcategories(selectId, categoryId) {
+        const select = document.getElementById(selectId);
+        if (!select) return;
+        const options = SUBCATEGORY_OPTIONS[categoryId] || [];
+        const current = select.value;
+        select.innerHTML = '<option value="">Selecciona subcategoria</option>';
+        options.forEach(opt => {
+          const option = document.createElement('option');
+          option.value = opt.id;
+          option.textContent = opt.label;
+          select.appendChild(option);
+        });
+        if (current) {
+          select.value = current;
+        }
+      }
+
+      const tabButtons = document.querySelectorAll('.tab-btn');
+      const tabContents = document.querySelectorAll('.tab-content');
+      tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.getAttribute('data-tab');
+          tabButtons.forEach(b => b.classList.remove('active'));
+          tabContents.forEach(c => c.classList.remove('active'));
+          btn.classList.add('active');
+          const tabEl = document.getElementById('tab-' + tab);
+          if (tabEl) tabEl.classList.add('active');
+        });
+      });
+
+      function renderItems(rows) {
+        const body = document.getElementById('items-body');
+        if (!body) return;
+        if (!rows.length) {
+          body.innerHTML = '<tr><td colspan="6">No items found.</td></tr>';
+          return;
+        }
+        body.innerHTML = rows.map(item => {
+          const link = item.url ? '<a href="' + item.url + '" target="_blank" rel="noopener">Open</a>' : '';
+          return '<tr>' +
+            '<td>' + (item.title || '') + '</td>' +
+            '<td>' + (item.price ?? '') + '</td>' +
+            '<td>' + (item.city || '') + '</td>' +
+            '<td>' + (item.marketplace || '') + '</td>' +
+            '<td>' + (item.detected_at || '') + '</td>' +
+            '<td>' + link + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+
+      async function loadItems(url) {
+        const res = await fetch(url);
+        if (!res.ok) {
+          return;
+        }
+        const rows = await res.json();
+        renderItems(Array.isArray(rows) ? rows : []);
+      }
+
+      const searchBtn = document.getElementById('items-search-btn');
+      if (searchBtn) {
+        searchBtn.addEventListener('click', () => {
+          const qInput = document.getElementById('items-search');
+          const q = qInput ? qInput.value.trim() : '';
+          if (!q) {
+            loadItems('/api/items');
+            return;
+          }
+          loadItems('/api/items/search?q=' + encodeURIComponent(q));
+        });
+      }
+
+      const resetBtn = document.getElementById('items-reset-btn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          const qInput = document.getElementById('items-search');
+          if (qInput) qInput.value = '';
+          loadItems('/api/items');
+        });
+      }
+
+      const addDialog = document.getElementById('add-filter-dialog');
+      const editDialog = document.getElementById('edit-filter-dialog');
+      const openAddBtn = document.getElementById('open-add-filter');
+      if (openAddBtn && addDialog && typeof addDialog.showModal === 'function') {
+        openAddBtn.addEventListener('click', () => addDialog.showModal());
+      }
+
+      document.querySelectorAll('.edit-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (!editDialog || typeof editDialog.showModal !== 'function') return;
+          const id = btn.getAttribute('data-id');
+          const form = document.getElementById('edit-filter-form');
+          if (form) form.setAttribute('action', '/ui/filters/' + id + '/edit');
+          const editName = document.getElementById('edit-name');
+          const editMarketplace = document.getElementById('edit-marketplace');
+          const editKeywords = document.getElementById('edit-keywords');
+          const editCategory = document.getElementById('edit-category-id');
+          const editSubcategory = document.getElementById('edit-subcategory-id');
+          const editBrand = document.getElementById('edit-brand');
+          const editCondition = document.getElementById('edit-condition');
+          const editColor = document.getElementById('edit-color');
+          const editSize = document.getElementById('edit-size');
+          const editShippable = document.getElementById('edit-is-shippable');
+          const editLatitude = document.getElementById('edit-latitude');
+          const editLongitude = document.getElementById('edit-longitude');
+          const editDistanceKm = document.getElementById('edit-distance-km');
+          const editMin = document.getElementById('edit-min-price');
+          const editMax = document.getElementById('edit-max-price');
+          const editEnabled = document.getElementById('edit-enabled');
+
+          if (editName) editName.value = btn.getAttribute('data-name') || '';
+          if (editMarketplace) editMarketplace.value = btn.getAttribute('data-marketplace') || 'wallapop';
+          if (editKeywords) editKeywords.value = btn.getAttribute('data-keywords') || '';
+          const categoryId = btn.getAttribute('data-category-id') || '';
+          if (editCategory) editCategory.value = categoryId;
+          refreshSubcategories('edit-subcategory-id', categoryId);
+          if (editSubcategory) editSubcategory.value = btn.getAttribute('data-subcategory-id') || '';
+          if (editBrand) editBrand.value = btn.getAttribute('data-brand') || '';
+          if (editCondition) editCondition.value = btn.getAttribute('data-condition') || '';
+          if (editColor) editColor.value = btn.getAttribute('data-color') || '';
+          if (editSize) editSize.value = btn.getAttribute('data-size') || '';
+          if (editShippable) editShippable.checked = (btn.getAttribute('data-is-shippable') || 'false') === 'true';
+          if (editLatitude) editLatitude.value = btn.getAttribute('data-latitude') || '';
+          if (editLongitude) editLongitude.value = btn.getAttribute('data-longitude') || '';
+          if (editDistanceKm) editDistanceKm.value = btn.getAttribute('data-distance-km') || '';
+          if (editMin) editMin.value = btn.getAttribute('data-min-price') || '';
+          if (editMax) editMax.value = btn.getAttribute('data-max-price') || '';
+          if (editEnabled) editEnabled.checked = (btn.getAttribute('data-enabled') || 'false') === 'true';
+          editDialog.showModal();
+        });
+      });
+
+      const addCategory = document.getElementById('add-category-id');
+      if (addCategory) {
+        addCategory.addEventListener('change', (e) => {
+          refreshSubcategories('add-subcategory-id', e.target.value);
+        });
+        refreshSubcategories('add-subcategory-id', addCategory.value || '');
+      }
+
+      const editCategory = document.getElementById('edit-category-id');
+      if (editCategory) {
+        editCategory.addEventListener('change', (e) => {
+          refreshSubcategories('edit-subcategory-id', e.target.value);
+        });
+      }
+    });
+  </script>
+
+  <dialog id="add-filter-dialog">
+    <h3>Anadir filtro</h3>
+    <form method="post" action="/ui/filters">
+      <div class="form-grid">
+        <div><label>Nombre</label><input type="text" name="name" required /></div>
+        <div><label>Marketplace</label><input type="text" name="marketplace" value="wallapop" required /></div>
+        <div><label>Keywords</label><input type="text" name="keywords" value="auriculares" /></div>
+        <div>
+          <label>Categoria</label>
+          <select id="add-category-id" name="category_id">
+            <option value="">Selecciona categoria</option>
+            <option value="12465">Moda y accesorios</option>
+          </select>
+        </div>
+        <div>
+          <label>Subcategoria</label>
+          <select id="add-subcategory-id" name="subcategory_id">
+            <option value="">Selecciona subcategoria</option>
+          </select>
+        </div>
+        <div><label>Precio min</label><input type="number" step="0.01" name="min_price" /></div>
+        <div><label>Precio max</label><input type="number" step="0.01" name="max_price" /></div>
+        <div><label>Brand (csv)</label><input type="text" name="brand" placeholder="Nike,Adidas" /></div>
+        <div><label>Condition (csv)</label><input type="text" name="condition" placeholder="new,as_good_as_new" /></div>
+        <div><label>Color (csv)</label><input type="text" name="color" placeholder="black,white" /></div>
+        <div><label>Size (csv)</label><input type="text" name="size" placeholder="M,L" /></div>
+        <div><label>Latitude</label><input type="number" step="0.000001" name="latitude" /></div>
+        <div><label>Longitude</label><input type="number" step="0.000001" name="longitude" /></div>
+        <div><label>Distance km</label><input type="number" name="distance_km" /></div>
+      </div>
+      <p><label><input type="checkbox" name="is_shippable" /> Solo envio</label></p>
+      <p><label><input type="checkbox" name="enabled" checked /> Enabled</label></p>
+      <button type="submit">Guardar</button>
+      <button type="button" onclick="document.getElementById('add-filter-dialog').close()">Cancelar</button>
+    </form>
+  </dialog>
+
+  <dialog id="edit-filter-dialog">
+    <h3>Editar filtro</h3>
+    <form id="edit-filter-form" method="post" action="/ui/filters/0/edit">
+      <div class="form-grid">
+        <div><label>Nombre</label><input id="edit-name" type="text" name="name" required /></div>
+        <div><label>Marketplace</label><input id="edit-marketplace" type="text" name="marketplace" required /></div>
+        <div><label>Keywords</label><input id="edit-keywords" type="text" name="keywords" /></div>
+        <div>
+          <label>Categoria</label>
+          <select id="edit-category-id" name="category_id">
+            <option value="">Selecciona categoria</option>
+            <option value="12465">Moda y accesorios</option>
+          </select>
+        </div>
+        <div>
+          <label>Subcategoria</label>
+          <select id="edit-subcategory-id" name="subcategory_id">
+            <option value="">Selecciona subcategoria</option>
+          </select>
+        </div>
+        <div><label>Precio min</label><input id="edit-min-price" type="number" step="0.01" name="min_price" /></div>
+        <div><label>Precio max</label><input id="edit-max-price" type="number" step="0.01" name="max_price" /></div>
+        <div><label>Brand (csv)</label><input id="edit-brand" type="text" name="brand" /></div>
+        <div><label>Condition (csv)</label><input id="edit-condition" type="text" name="condition" /></div>
+        <div><label>Color (csv)</label><input id="edit-color" type="text" name="color" /></div>
+        <div><label>Size (csv)</label><input id="edit-size" type="text" name="size" /></div>
+        <div><label>Latitude</label><input id="edit-latitude" type="number" step="0.000001" name="latitude" /></div>
+        <div><label>Longitude</label><input id="edit-longitude" type="number" step="0.000001" name="longitude" /></div>
+        <div><label>Distance km</label><input id="edit-distance-km" type="number" name="distance_km" /></div>
+      </div>
+      <p><label><input id="edit-is-shippable" type="checkbox" name="is_shippable" /> Solo envio</label></p>
+      <p><label><input id="edit-enabled" type="checkbox" name="enabled" /> Enabled</label></p>
+      <button type="submit">Guardar</button>
+      <button type="button" onclick="document.getElementById('edit-filter-dialog').close()">Cancelar</button>
+    </form>
+  </dialog>
 </body>
 </html>

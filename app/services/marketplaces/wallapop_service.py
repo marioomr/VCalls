@@ -1,16 +1,14 @@
 import logging
-import json
-import re
-from urllib.parse import quote_plus
-from typing import Any, Dict, List
+import random
+from typing import Dict, List
+from uuid import uuid4
 
 from app.services.marketplaces.base_marketplace import MarketplaceService
 import requests
 
 logger = logging.getLogger(__name__)
 
-SEARCH_PAGE_URL = "https://es.wallapop.com/search"
-NEXT_DATA_URL_TEMPLATE = "https://es.wallapop.com/_next/data/{build_id}/es/search.json"
+SEARCH_SECTION_ENDPOINT = "https://api.wallapop.com/api/v3/search/section"
 
 MAX_ITEMS = 20
 TIMEOUT = 20
@@ -29,53 +27,23 @@ class WallapopService(MarketplaceService):
         params = self._build_query_params(filters)
 
         try:
-            logger.info("Fetching search page...")
-            search_url = f"{SEARCH_PAGE_URL}?keywords={quote_plus(params['keywords'])}"
-            page_response = self._session.get(
-                search_url,
-                headers=self._search_page_headers(),
+            data_response = self._session.get(
+                SEARCH_SECTION_ENDPOINT,
+                params=params,
+                headers=self._request_headers(),
                 timeout=TIMEOUT,
             )
-            page_response.raise_for_status()
 
-            build_id = self._extract_build_id(page_response.text)
-            if not build_id:
-                logger.error("Build ID no detectado en __NEXT_DATA__")
+            if data_response.status_code != 200:
+                logger.error("[Wallapop] Status no esperado: %s", data_response.status_code)
+                logger.error("[Wallapop] Respuesta: %s", data_response.text[:300].replace("\n", " "))
                 return []
 
-            logger.info(f"Build ID detected: {build_id}")
-            logger.info("Fetching Next.js search data...")
-
-            data_url = NEXT_DATA_URL_TEMPLATE.format(build_id=build_id)
-            data_response = self._session.get(
-                data_url,
-                params={
-                    "keywords": params["keywords"],
-                    "order_by": params["order_by"],
-                },
-                headers=self._next_data_headers(referer=search_url),
-                timeout=TIMEOUT,
-            )
-            data_response.raise_for_status()
             payload = data_response.json()
-
-            data_root = payload.get("data", payload)
-            page_props = data_root.get("pageProps", {}) if isinstance(data_root, dict) else {}
-            if not isinstance(page_props, dict):
-                page_props = {}
-
-            logger.info("pageProps keys: %s", list(page_props.keys()))
-
-            items = page_props.get("initialSearchResult", {}).get("items")
-            if not isinstance(items, list):
-                items = page_props.get("searchObjects")
-            if not isinstance(items, list):
-                items = page_props.get("initialState", {}).get("search", {}).get("items")
+            items = ((((payload.get("data") or {}).get("section") or {}).get("items")) or [])
 
             if not isinstance(items, list):
-                logger.info("Wallapop response structure:")
-                logger.info(str(list(payload.keys()) if isinstance(payload, dict) else [type(payload).__name__]))
-                logger.info("pageProps content preview: %s", json.dumps(page_props, ensure_ascii=False, default=str)[:1000])
+                logger.error("[Wallapop] Formato inesperado: data.section.items")
                 return []
 
             logger.info("Items found: %s", len(items))
@@ -88,7 +56,8 @@ class WallapopService(MarketplaceService):
     # Headers
     # ------------------------------------------------------------------
 
-    def _browser_headers(self) -> dict:
+    def _request_headers(self) -> dict:
+        tracking_user_id = str(random.randint(10**17, (10**18) - 1))
         return {
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -100,43 +69,13 @@ class WallapopService(MarketplaceService):
             "Referer": "https://es.wallapop.com/",
             "Origin": "https://es.wallapop.com",
             "Connection": "keep-alive",
+            "x-deviceid": str(uuid4()),
+            "trackinguserid": tracking_user_id,
+            "mpid": tracking_user_id,
+            "x-deviceos": "0",
+            "deviceos": "0",
+            "x-appversion": "817710",
         }
-
-    def _search_page_headers(self) -> dict:
-        headers = self._browser_headers().copy()
-        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        return headers
-
-    def _next_data_headers(self, referer: str) -> dict:
-        headers = {
-            "User-Agent": self._browser_headers()["User-Agent"],
-            "Referer": referer,
-            "x-nextjs-data": "1",
-            "Accept": "application/json",
-        }
-        return headers
-
-    def _extract_build_id(self, html: str) -> str:
-        if not html:
-            return ""
-
-        # First attempt: parse __NEXT_DATA__ JSON payload.
-        script_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, flags=re.DOTALL)
-        if script_match:
-            raw_json = script_match.group(1)
-            try:
-                data = json.loads(raw_json)
-                build_id = data.get("buildId")
-                if isinstance(build_id, str) and build_id:
-                    return build_id
-            except Exception:
-                pass
-
-        # Fallback regex.
-        regex_match = re.search(r'"buildId"\s*:\s*"([^"]+)"', html)
-        if regex_match:
-            return regex_match.group(1)
-        return ""
 
     def _normalize(self, raw_items: list) -> List[dict]:
         normalized = []
@@ -158,36 +97,66 @@ class WallapopService(MarketplaceService):
                     "id": item_id,
                     "title": item.get("title") or "Sin titulo",
                     "price": price_float,
-                    "image": self._extract_image(item),
                     "url": f"https://es.wallapop.com/item/{slug}" if slug else "https://es.wallapop.com",
-                    "published_at": str(item.get("created_at") or item.get("published_at") or ""),
+                    "city": ((item.get("location") or {}).get("city")) or "",
+                    "created_at": str(item.get("created_at") or item.get("published_at") or ""),
                 }
             )
         return normalized
 
-    def _extract_image(self, content: dict) -> str:
-        images = content.get("images") or content.get("images_urls") or []
-        if not (isinstance(images, list) and images):
-            return ""
-        first = images[0]
-        if isinstance(first, str):
-            return first
-        if isinstance(first, dict):
-            if "urls" in first:
-                urls = first["urls"]
-                return urls.get("big") or urls.get("medium") or urls.get("small") or ""
-            return (
-                first.get("big")
-                or first.get("medium")
-                or first.get("small")
-                or first.get("original")
-                or ""
-            )
-        return ""
-
     def _build_query_params(self, filters: dict) -> Dict[str, str]:
-        # Debug test filter fijo solicitado.
-        return {
-            "keywords": "auriculares",
+        params: Dict[str, str] = {
+            "source": "deep_link",
             "order_by": "newest",
+            "section_type": "organic_search_results",
+            "search_id": str(uuid4()),
         }
+
+        keywords = str(filters.get("keywords") or "").strip()
+        if keywords:
+            params["keywords"] = keywords
+
+        category_id = filters.get("category_id") or filters.get("category")
+        if category_id is not None and str(category_id).strip():
+            params["category_id"] = str(category_id).strip()
+
+        subcategory_id = filters.get("subcategory_id") or filters.get("subcategory")
+        if subcategory_id is not None and str(subcategory_id).strip():
+            params["subcategory_ids"] = str(subcategory_id).strip()
+
+        min_price = filters.get("min_price")
+        max_price = filters.get("max_price")
+        if min_price is not None and str(min_price).strip() != "":
+            params["min_sale_price"] = str(min_price)
+        if max_price is not None and str(max_price).strip() != "":
+            params["max_sale_price"] = str(max_price)
+
+        brand = filters.get("brand")
+        if brand and str(brand).strip():
+            params["brand"] = str(brand).strip()
+
+        condition = filters.get("condition")
+        if condition and str(condition).strip():
+            params["condition"] = str(condition).strip()
+
+        color = filters.get("color")
+        if color and str(color).strip():
+            params["color"] = str(color).strip()
+
+        size = filters.get("size")
+        if size and str(size).strip():
+            params["fashion_size"] = str(size).strip()
+
+        if filters.get("is_shippable") is True:
+            params["is_shippable"] = "true"
+
+        latitude = filters.get("latitude")
+        longitude = filters.get("longitude")
+        distance_km = filters.get("distance_km")
+        if latitude is not None and longitude is not None:
+            params["latitude"] = str(latitude)
+            params["longitude"] = str(longitude)
+            if distance_km is not None:
+                params["distance_in_km"] = str(distance_km)
+
+        return params

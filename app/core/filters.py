@@ -1,11 +1,66 @@
 """Filter adapters and normalization helpers."""
 
+from dataclasses import asdict, dataclass
+from typing import Optional
 import uuid
+
+from app.storage import get_enabled_filters as db_get_enabled_filters
 
 DEFAULT_LATITUDE = 40.4168
 DEFAULT_LONGITUDE = -3.7038
 DEFAULT_DISTANCE = 200
 DEFAULT_LIMIT = 40
+
+
+@dataclass
+class Filter:
+    id: Optional[int] = None
+    name: str = ""
+    marketplace: str = "wallapop"
+    keywords: str = ""
+    category_id: Optional[str] = None
+    subcategory_id: Optional[int] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    brand: Optional[str] = None
+    condition: Optional[str] = None
+    color: Optional[str] = None
+    size: Optional[str] = None
+    is_shippable: Optional[bool] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    distance_km: Optional[int] = None
+    enabled: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def get_enabled_filters() -> list:
+    rows = db_get_enabled_filters()
+    normalized = []
+    for row in rows:
+        flt = Filter(
+            id=row.get("id"),
+            name=row.get("name", ""),
+            marketplace=str(row.get("marketplace", "wallapop")).lower(),
+            keywords=row.get("keywords", ""),
+            category_id=row.get("category_id"),
+            subcategory_id=row.get("subcategory_id"),
+            min_price=row.get("min_price"),
+            max_price=row.get("max_price"),
+            brand=row.get("brand"),
+            condition=row.get("condition"),
+            color=row.get("color"),
+            size=row.get("size"),
+            is_shippable=row.get("is_shippable"),
+            latitude=row.get("latitude"),
+            longitude=row.get("longitude"),
+            distance_km=row.get("distance_km"),
+            enabled=bool(row.get("enabled", False)),
+        )
+        normalized.append(flt.to_dict())
+    return normalized
 
 
 def build_wallapop_params(generic_filters: dict) -> dict:
